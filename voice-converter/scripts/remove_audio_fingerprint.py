@@ -5,9 +5,11 @@ Removes AI watermarks by applying a low-pass filter at 16 kHz to remove frequenc
 """
 
 import sys
+import os
 import numpy as np
 import librosa
 import soundfile as sf
+from pydub import AudioSegment
 
 def remove_fingerprint(input_path, output_path):
     """
@@ -50,8 +52,28 @@ def remove_fingerprint(input_path, output_path):
                 y_filtered[:, channel] = signal.filtfilt(b, a, y[:, channel])
         
         # Save cleaned audio
-        print(f"Saving cleaned audio: {output_path}")
-        sf.write(output_path, y_filtered, sr)
+        # soundfile can only write WAV, FLAC, OGG - not MP3
+        # So we need to detect format and convert if necessary
+        output_ext = os.path.splitext(output_path)[1].lower()
+        
+        if output_ext == '.mp3':
+            # Save as WAV first, then convert to MP3
+            temp_wav_path = output_path.replace('.mp3', '.wav')
+            print(f"Saving cleaned audio as WAV (temporary): {temp_wav_path}")
+            sf.write(temp_wav_path, y_filtered, sr)
+            
+            # Convert WAV to MP3 using pydub
+            print(f"Converting WAV to MP3: {output_path}")
+            audio = AudioSegment.from_wav(temp_wav_path)
+            audio.export(output_path, format="mp3", bitrate="320k")
+            
+            # Clean up temporary WAV file
+            os.remove(temp_wav_path)
+            print(f"Temporary WAV file removed")
+        else:
+            # For WAV, FLAC, OGG - save directly
+            print(f"Saving cleaned audio: {output_path}")
+            sf.write(output_path, y_filtered, sr)
         
         print(f"Fingerprint removal successful: {output_path}")
         return True

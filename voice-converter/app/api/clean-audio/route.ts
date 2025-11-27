@@ -120,6 +120,11 @@ export async function POST(request: NextRequest) {
     const cleanedFileSizeMB = fileStats.size / (1024 * 1024);
     console.log(`📊 Cleaned file size: ${cleanedFileSizeMB.toFixed(2)} MB`);
 
+    // Detect output format from file extension
+    const outputExt = path.extname(outputPath).toLowerCase();
+    const contentType = outputExt === '.mp3' ? 'audio/mpeg' : 'audio/wav';
+    console.log(`📦 Output format: ${outputExt}, Content-Type: ${contentType}`);
+
     console.log('✅ Audio cleaning complete - streaming response...');
 
     // Use streaming for large files to avoid timeout
@@ -161,7 +166,7 @@ export async function POST(request: NextRequest) {
     const response = new NextResponse(webStream, {
       status: 200,
       headers: {
-        'Content-Type': 'audio/wav',
+        'Content-Type': contentType,
         'Content-Disposition': `attachment; filename="cleaned_${audioFile.name}"`,
         'Content-Length': fileStats.size.toString(),
         'Cache-Control': 'no-cache',
