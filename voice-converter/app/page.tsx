@@ -8,15 +8,22 @@ import AnalyzerContent from './components/pipeline/AnalyzerContent';
 import CleanerContent from './components/pipeline/CleanerContent';
 import ConverterContent from './components/pipeline/ConverterContent';
 import TrimmerContent from './components/pipeline/TrimmerContent';
+import NoiseRemoverContent from './components/pipeline/NoiseRemoverContent';
 import SidebarPanel from './components/pipeline/SidebarPanel';
 import LyricWriterContent from './components/pipeline/LyricWriterContent';
 import { ProcessStatus } from './components/pipeline/ProcessContainer';
+import { FileHistoryProvider, useFileHistory } from './lib/fileHistory';
+import Notification from './components/pipeline/Notification';
 
-export default function PipelinePage() {
+function PipelinePageContent() {
+  const { addFile, addProcessToFile } = useFileHistory();
   const [activeStep, setActiveStep] = useState<number | undefined>();
   const [completedSteps, setCompletedSteps] = useState<number[]>([]);
   const [overallProgress, setOverallProgress] = useState(0);
   const [log, setLog] = useState<string[]>([]);
+  
+  // Notification state
+  const [notification, setNotification] = useState<{ message: string; type?: 'success' | 'info' | 'warning' | 'error' } | null>(null);
   
   // ProcessDetailModal state (for all processes)
   const [showProcessDetail, setShowProcessDetail] = useState(false);
@@ -28,6 +35,7 @@ export default function PipelinePage() {
   const [fileForAnalyzer, setFileForAnalyzer] = useState<File | null>(null);
   const [fileForConverter, setFileForConverter] = useState<File | null>(null);
   const [fileForTrimmer, setFileForTrimmer] = useState<File | null>(null);
+  const [fileForNoiseRemover, setFileForNoiseRemover] = useState<File | null>(null);
 
   // Process states
   const [processStates, setProcessStates] = useState<Record<number, ProcessStatus>>({
@@ -68,6 +76,10 @@ export default function PipelinePage() {
         addLog('Analyze audio: Opening fingerprint analyzer');
       } else if (processId === 3) {
         addLog('Remove fingerprint: Opening fingerprint remover');
+      } else if (processId === 6) {
+        addLog('Noise Remover: Opening noise removal tool');
+      } else if (processId === 7) {
+        addLog('Audio Trimmer: Opening audio trimmer');
       } else {
         addLog(`Process ${processId}: Opening with zoom animation`);
       }
@@ -83,6 +95,23 @@ export default function PipelinePage() {
     const nextProcess = processes.find(p => p.id === nextStep);
     if (!nextProcess || !processDetailOrigin) return;
 
+    // Save file to history if provided
+    if (file) {
+      const currentProcess = processes.find(p => p.id === currentStep);
+      if (currentProcess) {
+        // Check if file already exists in history
+        const existingEntry = addFile(file, currentStep, currentProcess.title, currentProcess.icon);
+        // Add next process to history
+        addProcessToFile(existingEntry.id, nextStep, nextProcess.title, nextProcess.icon);
+        
+        // Show notification that file was saved
+        setNotification({
+          message: `✅ Fil gemt: ${file.name.substring(0, 30)}${file.name.length > 30 ? '...' : ''}`,
+          type: 'success'
+        });
+      }
+    }
+
     // Handle file transfer based on current and next step
     if (currentStep === 1 && nextStep === 2) {
       // Converter → Analyzer
@@ -90,6 +119,12 @@ export default function PipelinePage() {
     } else if (currentStep === 2 && nextStep === 3) {
       // Analyzer → Cleaner
       setFileForCleaner(file || null);
+    } else if (currentStep === 3 && nextStep === 6) {
+      // Cleaner → Noise Remover
+      setFileForNoiseRemover(file || null);
+    } else if (currentStep === 6 && nextStep === 7) {
+      // Noise Remover → Trimmer
+      setFileForTrimmer(file || null);
     } else if (currentStep === 3 && nextStep === 4) {
       // Cleaner → Key Detect
       // Future: setFileForKeyDetect(file || null);
@@ -166,8 +201,9 @@ export default function PipelinePage() {
       id: 6,
       title: 'Noise Remover',
       icon: '🔇',
-      status: 'idle' as ProcessStatus,
-      description: 'Coming soon',
+      status: processStates[6],
+      progress: processProgress[6],
+      description: 'Remove background noise',
       onClick: (rect?: DOMRect) => handleProcessClick(6, rect),
     },
     {
@@ -206,6 +242,15 @@ export default function PipelinePage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-slate-900 to-zinc-900 p-4 overflow-x-hidden">
+      {/* Notification */}
+      {notification && (
+        <Notification
+          message={notification.message}
+          type={notification.type}
+          onClose={() => setNotification(null)}
+        />
+      )}
+      
       <div className="max-w-[1400px] mx-auto">
         {/* Header */}
         <div className="flex justify-between items-center mb-6">
@@ -337,6 +382,34 @@ export default function PipelinePage() {
               }}
               preloadedFile={fileForCleaner || undefined}
             />
+          ) : processDetailInfo.stepNumber === 6 ? (
+            <NoiseRemoverContent
+              onNextProcess={(file) => {
+                setFileForNoiseRemover(file || null);
+                navigateToNextProcess(6, file, 7);
+              }}
+              onPreviousProcess={() => {
+                // Navigate back to previous process (step 5 or 3)
+                const prevStep = 3; // Default to step 3 (Remove Fingerprint)
+                const prevProcess = processes.find(p => p.id === prevStep);
+                if (prevProcess && processDetailOrigin) {
+                  setShowProcessDetail(false);
+                  setTimeout(() => {
+                    setProcessDetailOrigin(processDetailOrigin);
+                    setProcessDetailInfo({
+                      title: prevProcess.title,
+                      icon: prevProcess.icon,
+                      stepNumber: prevStep
+                    });
+                    setShowProcessDetail(true);
+                    setActiveStep(prevStep);
+                    setProcessStates(prev => ({ ...prev, 6: 'idle', [prevStep]: 'running' }));
+                    addLog(`Navigating back from Process 6 to Process ${prevStep}`);
+                  }, 100);
+                }
+              }}
+              preloadedFile={fileForNoiseRemover || undefined}
+            />
           ) : processDetailInfo.stepNumber === 7 ? (
             <TrimmerContent
               onNextProcess={(file) => {
@@ -402,6 +475,14 @@ export default function PipelinePage() {
         </ProcessDetailModal>
       )}
     </div>
+  );
+}
+
+export default function PipelinePage() {
+  return (
+    <FileHistoryProvider>
+      <PipelinePageContent />
+    </FileHistoryProvider>
   );
 }
 

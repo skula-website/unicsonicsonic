@@ -8,7 +8,7 @@ import { getPaths } from '@/app/lib/paths';
 import { normalizeFilename, generateDownloadFilename } from '@/app/lib/filename';
 
 // Increase body size limit for large audio files (100MB)
-export const maxDuration = 600; // Max execution time: 10 minutes - extra margin for large files
+export const maxDuration = 600; // Max execution time: 10 minutes
 export const dynamic = 'force-dynamic';
 export const maxBodySize = 100 * 1024 * 1024; // 100MB in bytes
 export const runtime = 'nodejs';
@@ -30,6 +30,17 @@ export async function POST(request: NextRequest) {
 
     const formData = await request.formData();
     const audioFile = formData.get('audio') as File;
+    
+    if (!audioFile) {
+      return NextResponse.json(
+        { error: 'No audio file uploaded' },
+        { status: 400 }
+      );
+    }
+    
+    const reductionStrength = formData.get('reductionStrength') ? parseFloat(formData.get('reductionStrength') as string) : 0.5;
+    const stationary = formData.get('stationary') === 'true';
+    const originalFilename = formData.get('originalFilename') as string || audioFile.name;
 
     if (!audioFile) {
       return NextResponse.json(
@@ -39,52 +50,45 @@ export async function POST(request: NextRequest) {
     }
 
     const fileSizeMB = audioFile.size / (1024 * 1024);
-    console.log('🧹 Audio Cleaning Request:', {
+    console.log('🔇 Noise Removal Request:', {
       filename: audioFile.name,
+      originalFilename: originalFilename,
       size: `${fileSizeMB.toFixed(2)} MB`,
       type: audioFile.type,
+      reductionStrength,
+      stationary,
     });
     
-    // Warn if file is very large (may hit Railway HTTP timeout)
+    // Warn if file is very large
     if (fileSizeMB > 50) {
       console.warn(`⚠️ Large file detected (${fileSizeMB.toFixed(2)} MB) - may hit Railway HTTP timeout`);
     }
 
-    // Save uploaded file with normalized filenames (safe for file system)
+    // Save uploaded file
     const timestamp = Date.now();
-    const normalizedInputName = normalizeFilename(audioFile.name, 'input', timestamp);
-    const normalizedOutputName = normalizeFilename(audioFile.name, 'cleaned', timestamp);
+    const normalizedInputName = normalizeFilename(originalFilename, 'input', timestamp);
+    const normalizedOutputName = normalizeFilename(originalFilename, 'denoised', timestamp);
     const inputPath = path.join(TEMP_DIR, normalizedInputName);
     const outputPath = path.join(TEMP_DIR, normalizedOutputName);
-    
-    console.log(`📝 Original filename: ${audioFile.name}`);
-    console.log(`📝 Normalized input: ${normalizedInputName}`);
-    console.log(`📝 Normalized output: ${normalizedOutputName}`);
 
     const bytes = await audioFile.arrayBuffer();
     const buffer = Buffer.from(bytes);
     
     console.log(`📝 Writing file to: ${inputPath}`);
-    console.log(`📝 File size: ${(buffer.length / (1024 * 1024)).toFixed(2)} MB`);
-    console.log(`📝 File name: ${audioFile.name}`);
-    
     await writeFile(inputPath, buffer);
 
-    // Verify file was saved correctly and wait for file system to sync
+    // Verify file was saved correctly
     const { stat } = await import('fs/promises');
     
-    // Wait a bit and verify file exists and has correct size (fix timing issues)
     let retries = 0;
-    const maxRetries = 20; // Increased retries
+    const maxRetries = 20;
     let inputStats;
     
     while (retries < maxRetries) {
       try {
         inputStats = await stat(inputPath);
-        // Verify file size matches what we wrote
         if (inputStats.size === buffer.length) {
           console.log(`✓ File saved and verified: ${inputPath} (${(inputStats.size / (1024 * 1024)).toFixed(2)} MB)`);
-          console.log(`✓ File exists check: ${existsSync(inputPath)}`);
           break;
         } else {
           console.log(`⚠️ File size mismatch: expected ${buffer.length}, got ${inputStats.size}, retry ${retries + 1}/${maxRetries}`);
@@ -94,33 +98,34 @@ export async function POST(request: NextRequest) {
       }
       
       if (retries < maxRetries - 1) {
-        await new Promise(resolve => setTimeout(resolve, 200)); // Wait 200ms
+        await new Promise(resolve => setTimeout(resolve, 200));
         retries++;
       } else {
-        // Final check before throwing error
-        const finalCheck = existsSync(inputPath);
-        throw new Error(`File was not saved correctly after ${maxRetries} retries. File exists: ${finalCheck}, Path: ${inputPath}`);
+        throw new Error(`File was not saved correctly after ${maxRetries} retries`);
       }
     }
 
-    // Run Python fingerprint remover
-    const pythonScript = path.join(SCRIPTS_DIR, 'remove_audio_fingerprint.py');
-    const pythonPath = getPythonPath(); // Auto-detect: venv (local) or system python3 (Render.com)
+    // Run Python noise removal script
+    const pythonScript = path.join(SCRIPTS_DIR, 'remove_noise.py');
+    const pythonPath = getPythonPath();
 
     console.log(`🐍 Running Python script: ${pythonScript}`);
     console.log(`🐍 Python path: ${pythonPath}`);
     console.log(`🐍 Input path: ${inputPath}`);
     console.log(`🐍 Output path: ${outputPath}`);
+    console.log(`🐍 Reduction strength: ${reductionStrength}, Stationary: ${stationary}`);
 
     const pythonProcess = spawn(pythonPath, [
       pythonScript,
       inputPath,
       outputPath,
+      reductionStrength.toString(),
+      stationary ? 'true' : 'false',
     ], {
       env: {
         ...process.env,
-        TMPDIR: TEMP_DIR,  // Use our temp dir instead of system /tmp
-        MPLCONFIGDIR: TEMP_DIR,  // Matplotlib config dir
+        TMPDIR: TEMP_DIR,
+        MPLCONFIGDIR: TEMP_DIR,
       }
     });
 
@@ -139,7 +144,7 @@ export async function POST(request: NextRequest) {
       console.error('[Python Error]', text);
     });
 
-    // Timeout efter 15 minutter (for meget store filer)
+    // Timeout after 15 minutes
     const timeout = new Promise<number>((_, reject) => {
       setTimeout(() => {
         pythonProcess.kill('SIGTERM');
@@ -156,30 +161,48 @@ export async function POST(request: NextRequest) {
     ]);
 
     if (exitCode !== 0) {
-      // Include both stdout and stderr in error message for debugging
-      const debugInfo = stdout ? `\n\nSTDOUT:\n${stdout}` : '';
-      throw new Error(`Python script failed with exit code ${exitCode}${debugInfo}\n\nSTDERR:\n${stderr}`);
+      // Combine stderr and stdout for full error details
+      const errorDetails = stderr.trim() || stdout.trim() || 'Unknown error';
+      console.error('❌ Python script error (exit code', exitCode, '):');
+      console.error('STDERR:', stderr);
+      console.error('STDOUT:', stdout);
+      
+      // Create a more readable error message
+      let errorMessage = `Python script failed with exit code ${exitCode}`;
+      if (stderr.trim()) {
+        errorMessage += `\n\n${stderr.trim()}`;
+      } else if (stdout.trim()) {
+        errorMessage += `\n\n${stdout.trim()}`;
+      }
+      
+      throw new Error(errorMessage);
     }
 
-    // Get file stats (stat already imported earlier in function)
+    // Get file stats
     const fileStats = await stat(outputPath);
     const cleanedFileSizeMB = fileStats.size / (1024 * 1024);
-    console.log(`📊 Cleaned file size: ${cleanedFileSizeMB.toFixed(2)} MB`);
+    console.log(`📊 Denoised file size: ${cleanedFileSizeMB.toFixed(2)} MB`);
 
-    // Detect output format from file extension
+    console.log('✅ Noise removal complete - streaming response...');
+
+    // Determine Content-Type based on output file extension
     const outputExt = path.extname(outputPath).toLowerCase();
-    const contentType = outputExt === '.mp3' ? 'audio/mpeg' : 'audio/wav';
-    console.log(`📦 Output format: ${outputExt}, Content-Type: ${contentType}`);
+    let contentType = 'application/octet-stream';
+    if (outputExt === '.mp3') {
+      contentType = 'audio/mpeg';
+    } else if (outputExt === '.wav') {
+      contentType = 'audio/wav';
+    } else if (outputExt === '.flac') {
+      contentType = 'audio/flac';
+    } else if (outputExt === '.ogg') {
+      contentType = 'audio/ogg';
+    }
 
-    console.log('✅ Audio cleaning complete - streaming response...');
-
-    // Use streaming for large files to avoid timeout
-    // Convert Node.js ReadableStream to Web ReadableStream
+    // Use streaming for large files
     const fileStream = createReadStream(outputPath);
     const webStream = new ReadableStream({
       start(controller) {
         fileStream.on('data', (chunk: string | Buffer) => {
-          // Convert Node.js Buffer to Uint8Array for Web Streams
           const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
           controller.enqueue(new Uint8Array(buffer));
         });
@@ -195,7 +218,6 @@ export async function POST(request: NextRequest) {
         fileStream.on('error', (err) => {
           console.error('❌ Stream error:', err);
           controller.error(err);
-          // Cleanup on error
           unlink(inputPath).catch(console.error);
           unlink(outputPath).catch(console.error);
         });
@@ -208,13 +230,13 @@ export async function POST(request: NextRequest) {
       }
     });
 
-    // Generate download filename with original name restored
-    const downloadFilename = generateDownloadFilename(audioFile.name, '_cleaned');
-    // Normalize for Content-Disposition header (RFC 5987 encoding for special chars)
+    // Generate download filename - normalize to avoid special character issues in headers
+    const downloadFilename = generateDownloadFilename(originalFilename, '_denoised');
+    // Further normalize for Content-Disposition header (RFC 5987 encoding for special chars)
     const safeDownloadFilename = downloadFilename
       .replace(/[^\x20-\x7E]/g, '_') // Replace non-ASCII with underscore
       .replace(/[^a-zA-Z0-9._-]/g, '_'); // Replace special chars except . _ - with underscore
-    
+
     // Return streaming response
     const response = new NextResponse(webStream, {
       status: 200,
@@ -223,36 +245,36 @@ export async function POST(request: NextRequest) {
         'Content-Disposition': `attachment; filename="${safeDownloadFilename}"`,
         'Content-Length': fileStats.size.toString(),
         'Cache-Control': 'no-cache',
-        'Transfer-Encoding': 'chunked', // Enable chunked transfer
+        'Transfer-Encoding': 'chunked',
       },
     });
 
     return response;
 
   } catch (error) {
-    console.error('❌ Audio cleaning error:', error);
+    console.error('❌ Noise removal error:', error);
     
-    // Handle connection reset/timeout errors specifically
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     const isConnectionError = errorMessage.includes('aborted') || 
                               errorMessage.includes('ECONNRESET') ||
                               errorMessage.includes('timeout');
     
     if (isConnectionError) {
-      console.error('⚠️ Connection timeout/reset detected - Railway HTTP proxy timeout likely exceeded');
+      console.error('⚠️ Connection timeout/reset detected');
       return NextResponse.json(
         { 
           error: 'Request timeout - file is too large or processing took too long',
-          details: 'Railway HTTP timeout exceeded. Try with a smaller file or wait for MP3 optimization update.',
+          details: 'Railway HTTP timeout exceeded. Try with a smaller file.',
           code: 'TIMEOUT'
         },
-        { status: 504 } // Gateway Timeout
+        { status: 504 }
       );
     }
     
+    // Return detailed error message
     return NextResponse.json(
       { 
-        error: 'Fingerprint removal failed', 
+        error: errorMessage, 
         details: errorMessage
       },
       { status: 500 }

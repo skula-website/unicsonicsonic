@@ -2,6 +2,9 @@
 
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { getApiPath } from '../../lib/api';
+import FileSelector from './FileSelector';
+import FileInfoHeader from './FileInfoHeader';
+import { useFileHistory } from '../../lib/fileHistory';
 
 interface ConverterContentProps {
   onNextProcess?: (file?: File) => void;
@@ -24,8 +27,16 @@ function detectFileType(filename: string): string {
 }
 
 export default function ConverterContent({ onNextProcess, preloadedFile }: ConverterContentProps) {
-  const [file, setFile] = useState<File | null>(preloadedFile || null);
-  const [dragActive, setDragActive] = useState(false);
+  const { fileHistory, getLatestFile } = useFileHistory();
+  
+  // File state - prioritize preloadedFile, otherwise use latest from history
+  const getInitialFile = () => {
+    if (preloadedFile) return preloadedFile;
+    const latest = getLatestFile();
+    return latest ? latest.file : null;
+  };
+  
+  const [file, setFile] = useState<File | null>(getInitialFile());
   const [converting, setConverting] = useState(false);
   const [progress, setProgress] = useState('');
   const [convertedFile, setConvertedFile] = useState<File | null>(null);
@@ -39,15 +50,23 @@ export default function ConverterContent({ onNextProcess, preloadedFile }: Conve
   const [estimatedSeconds, setEstimatedSeconds] = useState<number | null>(null);
   const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const downloadLinkRef = useRef<HTMLAnchorElement | null>(null);
-
+  
+  // Get current file's process history
+  const currentFileHistory = file 
+    ? fileHistory.find(entry => entry.file.name === file.name)?.processes || []
+    : [];
+  
+  // Initialize file when it's set
   useEffect(() => {
-    if (preloadedFile) {
-      setFile(preloadedFile);
-      setConvertedFile(null);
-      setError('');
-      setProgress('📎 File ready for conversion');
+    if (file && !preloadedFile) {
+      const latest = getLatestFile();
+      if (latest && latest.file.name === file.name) {
+        setProgress('📎 Seneste fil automatisk valgt');
+      }
+    } else if (preloadedFile) {
+      setProgress('📎 Fil automatisk overført fra forrige proces');
     }
-  }, [preloadedFile]);
+  }, [file, preloadedFile, getLatestFile]);
 
   // Auto-set output format based on input file type
   useEffect(() => {
@@ -66,35 +85,12 @@ export default function ConverterContent({ onNextProcess, preloadedFile }: Conve
     }
   }, [file]);
 
-  const handleDrag = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.type === 'dragenter' || e.type === 'dragover') {
-      setDragActive(true);
-    } else if (e.type === 'dragleave') {
-      setDragActive(false);
-    }
-  }, []);
-
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragActive(false);
-    const droppedFile = e.dataTransfer.files?.[0];
-    if (droppedFile && droppedFile.type.startsWith('audio/')) {
-      setFile(droppedFile);
-      setConvertedFile(null);
-      setError('');
-    }
-  }, []);
-
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFile = e.target.files?.[0];
-    if (selectedFile) {
-      setFile(selectedFile);
-      setConvertedFile(null);
-      setError('');
-    }
+  // Handle file selection from FileSelector
+  const handleFileSelect = (selectedFile: File) => {
+    setFile(selectedFile);
+    setConvertedFile(null);
+    setError('');
+    setProgress('');
   };
 
   const estimateProcessingTime = (fileSizeMB: number): number => {
@@ -224,62 +220,23 @@ export default function ConverterContent({ onNextProcess, preloadedFile }: Conve
   const showWarning = file && detectedType === 'WAV' && outputFormat === 'mp3';
 
   return (
-    <div className="space-y-2 md:space-y-2 p-3 md:p-3">
-      {/* File Upload */}
-      <div
-        onDragEnter={handleDrag}
-        onDragLeave={handleDrag}
-        onDragOver={handleDrag}
-        onDrop={handleDrop}
-        className={`
-          border-2 border-dashed rounded-lg p-4 md:p-3 text-center transition-colors
-          ${dragActive ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' : 'border-slate-400 dark:border-slate-600'}
-          ${file ? 'bg-slate-50 dark:bg-slate-800/50' : ''}
-        `}
-      >
-        {file ? (
-          <div className="space-y-2">
-            <div className="text-lg md:text-xl font-semibold text-slate-800 dark:text-slate-200">
-              📎 {file.name}
-            </div>
-            <div className="text-xs md:text-sm text-slate-600 dark:text-slate-400">
-              {detectedType && `Detected format: ${detectedType}`}
-              <br />
-              {(file.size / (1024 * 1024)).toFixed(2)} MB
-            </div>
-            <button
-              onClick={() => {
-                setFile(null);
-                setConvertedFile(null);
-                setError('');
-              }}
-              className="text-xs md:text-sm text-red-600 dark:text-red-400 hover:underline mt-2"
-            >
-              Remove file
-            </button>
-          </div>
-        ) : (
-          <div className="space-y-2">
-            <div className="text-2xl md:text-4xl mb-2">🎵</div>
-            <p className="text-sm md:text-base text-slate-600 dark:text-slate-400">
-              Drag & drop audio file or click to select
-            </p>
-            <input
-              type="file"
-              accept="audio/*"
-              onChange={handleFileSelect}
-              className="hidden"
-              id="audio-upload"
-            />
-            <label
-              htmlFor="audio-upload"
-              className="inline-block mt-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 cursor-pointer text-xs md:text-sm"
-            >
-              Select File
-            </label>
-          </div>
-        )}
-      </div>
+    <div className="space-y-2">
+      {/* File Info Header */}
+      {file && (
+        <FileInfoHeader
+          fileName={file.name}
+          fileSize={file.size}
+          processes={currentFileHistory}
+        />
+      )}
+      
+      <div className="p-3 space-y-2">
+        {/* File Selector */}
+        <FileSelector
+          onFileSelect={handleFileSelect}
+          acceptedFileTypes="audio/*"
+          currentFile={file}
+        />
 
       {/* Conversion Settings */}
       {file && (
@@ -452,6 +409,7 @@ export default function ConverterContent({ onNextProcess, preloadedFile }: Conve
 
       {/* Hidden download link */}
       <a ref={downloadLinkRef} href="#" download style={{ display: 'none' }} />
+      </div>
     </div>
   );
 }

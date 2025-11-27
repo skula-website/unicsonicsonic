@@ -20,6 +20,9 @@ torchaudio>=2.0.0
 matplotlib>=3.5.0
 matplotlib-inline>=0.1.0
 
+# Noise reduction
+noisereduce>=2.0.0
+
 # Speech recognition (optional, for future features)
 # faster-whisper>=0.9.0
 

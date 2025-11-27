@@ -25,6 +25,33 @@ export default function ProcessDetailModal({
   const [isAnimating, setIsAnimating] = useState(false);
   const [animationPhase, setAnimationPhase] = useState<'opening' | 'open' | 'closing' | 'closed'>('closed');
 
+  // Stop all audio playback when modal opens/closes
+  useEffect(() => {
+    // Stop all HTMLAudioElement instances
+    const stopAllAudio = () => {
+      // Find all audio elements in the document
+      const audioElements = document.querySelectorAll('audio');
+      audioElements.forEach(audio => {
+        if (!audio.paused) {
+          audio.pause();
+          audio.currentTime = 0;
+        }
+      });
+      
+      // Also stop any Audio objects created via new Audio()
+      // We'll dispatch a custom event that components can listen to
+      window.dispatchEvent(new CustomEvent('stop-all-audio'));
+    };
+
+    if (!isOpen) {
+      // Stop audio when modal closes
+      stopAllAudio();
+    } else if (isOpen && originRect) {
+      // Stop audio when modal opens (to prevent audio from previous modal playing)
+      stopAllAudio();
+    }
+  }, [isOpen, originRect]);
+
   useEffect(() => {
     if (isOpen && originRect) {
       // Opening animation

@@ -2,6 +2,9 @@
 
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { getApiPath } from '../../lib/api';
+import FileSelector from './FileSelector';
+import FileInfoHeader from './FileInfoHeader';
+import { useFileHistory } from '../../lib/fileHistory';
 
 interface AnalysisResult {
   filename: string;
@@ -28,8 +31,16 @@ interface AnalyzerContentProps {
 }
 
 export default function AnalyzerContent({ onOpenCleaner, onNextProcess, preloadedFile }: AnalyzerContentProps) {
-  const [file, setFile] = useState<File | null>(preloadedFile || null);
-  const [dragActive, setDragActive] = useState(false);
+  const { fileHistory, getLatestFile } = useFileHistory();
+  
+  // File state - prioritize preloadedFile, otherwise use latest from history
+  const getInitialFile = () => {
+    if (preloadedFile) return preloadedFile;
+    const latest = getLatestFile();
+    return latest ? latest.file : null;
+  };
+  
+  const [file, setFile] = useState<File | null>(getInitialFile());
   const [analyzing, setAnalyzing] = useState(false);
   const [progress, setProgress] = useState('');
   const [result, setResult] = useState<AnalysisResult | null>(null);
@@ -38,45 +49,30 @@ export default function AnalyzerContent({ onOpenCleaner, onNextProcess, preloade
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [estimatedSeconds, setEstimatedSeconds] = useState<number | null>(null);
   const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
-
+  
+  // Get current file's process history
+  const currentFileHistory = file 
+    ? fileHistory.find(entry => entry.file.name === file.name)?.processes || []
+    : [];
+  
+  // Initialize file when it's set
   useEffect(() => {
-    if (preloadedFile) {
-      setFile(preloadedFile);
-      setResult(null);
-      setError('');
-      setProgress('📎 File automatically transferred from cleaning - ready for analysis');
+    if (file && !preloadedFile) {
+      const latest = getLatestFile();
+      if (latest && latest.file.name === file.name) {
+        setProgress('📎 Seneste fil automatisk valgt');
+      }
+    } else if (preloadedFile) {
+      setProgress('📎 Fil automatisk overført fra forrige proces');
     }
-  }, [preloadedFile]);
+  }, [file, preloadedFile, getLatestFile]);
 
-  const handleDrag = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.type === 'dragenter' || e.type === 'dragover') {
-      setDragActive(true);
-    } else if (e.type === 'dragleave') {
-      setDragActive(false);
-    }
-  }, []);
-
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragActive(false);
-    const droppedFile = e.dataTransfer.files?.[0];
-    if (droppedFile && droppedFile.type.startsWith('audio/')) {
-      setFile(droppedFile);
-      setResult(null);
-      setError('');
-    }
-  }, []);
-
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFile = e.target.files?.[0];
-    if (selectedFile) {
-      setFile(selectedFile);
-      setResult(null);
-      setError('');
-    }
+  // Handle file selection from FileSelector
+  const handleFileSelect = (selectedFile: File) => {
+    setFile(selectedFile);
+    setResult(null);
+    setError('');
+    setProgress('');
   };
 
   const estimateProcessingTime = (fileSizeMB: number): number => {
@@ -190,85 +186,63 @@ export default function AnalyzerContent({ onOpenCleaner, onNextProcess, preloade
   };
 
   return (
-    <div className="space-y-2 md:space-y-3">
-      {!result ? (
-        <>
-          {/* Compact Drop Zone - Responsive padding */}
-          <div
-            className={`border-2 border-dashed rounded-lg p-3 md:p-4 text-center transition-colors ${
-              dragActive ? 'border-purple-500 bg-purple-500/20' : 'border-slate-600 bg-slate-900/50'
-            }`}
-            onDragEnter={handleDrag}
-            onDragLeave={handleDrag}
-            onDragOver={handleDrag}
-            onDrop={handleDrop}
-          >
-            <div className="text-xl md:text-2xl mb-1 md:mb-2">🎵</div>
-            <p className="text-gray-300 text-xs md:text-sm mb-2">Drag audio file here or click to select</p>
-            <input
-              type="file"
-              accept="audio/*"
-              onChange={handleFileSelect}
-              className="hidden"
-              id="analyzer-file-input"
+    <div className="space-y-2">
+      {/* File Info Header */}
+      {file && (
+        <FileInfoHeader
+          fileName={file.name}
+          fileSize={file.size}
+          processes={currentFileHistory}
+        />
+      )}
+      
+      <div className="p-3 space-y-2">
+        {!result ? (
+          <>
+            {/* File Selector */}
+            <FileSelector
+              onFileSelect={handleFileSelect}
+              acceptedFileTypes="audio/*"
+              currentFile={file}
             />
-            <label
-              htmlFor="analyzer-file-input"
-              className="inline-block px-3 py-1 md:px-4 md:py-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded text-xs md:text-sm cursor-pointer hover:from-purple-700 hover:to-indigo-700"
-            >
-              Select File
-            </label>
-          </div>
 
-          {file && (
-            <div className="p-2 md:p-3 bg-slate-700 rounded-lg border border-slate-600">
-              <p className="text-xs text-gray-400 mb-1">Selected:</p>
-              <p className="font-medium text-white text-xs md:text-sm truncate">{file.name}</p>
-              <p className="text-xs text-gray-400">{(file.size / (1024 * 1024)).toFixed(2)} MB</p>
-              {file.size > 30 * 1024 * 1024 && (
-                <div className="mt-1.5 md:mt-2 p-1 md:p-1.5 bg-blue-500/20 border border-blue-500/50 rounded text-xs text-blue-200">
-                  ⚡ MP3 Optimization Enabled
-                </div>
-              )}
-            </div>
-          )}
 
-          {progress && (
-            <div className="p-2 md:p-3 bg-purple-500/20 rounded-lg border border-purple-500/50">
-              <p className="text-purple-200 text-xs md:text-sm mb-1.5 md:mb-2">{progress}</p>
-              {analyzing && (
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-purple-300">⏱️ {Math.floor(elapsedSeconds / 60)}:{(elapsedSeconds % 60).toString().padStart(2, '0')}</span>
+            {progress && (
+              <div className="p-2 md:p-3 bg-purple-500/20 rounded-lg border border-purple-500/50">
+                <p className="text-purple-200 text-xs md:text-sm mb-1.5 md:mb-2">{progress}</p>
+                {analyzing && (
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-purple-300">⏱️ {Math.floor(elapsedSeconds / 60)}:{(elapsedSeconds % 60).toString().padStart(2, '0')}</span>
+                      {estimatedSeconds && (
+                        <span className="text-purple-200">Est: {Math.floor(estimatedSeconds / 60)}:{(estimatedSeconds % 60).toString().padStart(2, '0')}</span>
+                      )}
+                    </div>
                     {estimatedSeconds && (
-                      <span className="text-purple-200">Est: {Math.floor(estimatedSeconds / 60)}:{(estimatedSeconds % 60).toString().padStart(2, '0')}</span>
+                      <div className="w-full bg-purple-900/50 rounded-full h-2 overflow-hidden">
+                        <div 
+                          className="h-full bg-gradient-to-r from-purple-500 to-indigo-500 transition-all duration-1000"
+                          style={{ width: `${Math.min((elapsedSeconds / estimatedSeconds) * 100, 95)}%` }}
+                        />
+                      </div>
                     )}
                   </div>
-                  {estimatedSeconds && (
-                    <div className="w-full bg-purple-900/50 rounded-full h-2 overflow-hidden">
-                      <div 
-                        className="h-full bg-gradient-to-r from-purple-500 to-indigo-500 transition-all duration-1000"
-                        style={{ width: `${Math.min((elapsedSeconds / estimatedSeconds) * 100, 95)}%` }}
-                      />
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
+                )}
+              </div>
+            )}
 
-          {error && (
-            <div className="p-3 bg-red-500/20 rounded-lg border border-red-500/50">
-              <p className="text-red-200 text-sm">❌ {error}</p>
-            </div>
-          )}
+            {error && (
+              <div className="p-3 bg-red-500/20 rounded-lg border border-red-500/50">
+                <p className="text-red-200 text-sm">❌ {error}</p>
+              </div>
+            )}
 
-          <div className="flex gap-2">
-            <button
-              onClick={analyzeFile}
-              disabled={!file || analyzing}
-              className="flex-1 px-4 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded text-sm font-medium hover:from-purple-700 hover:to-indigo-700 disabled:bg-slate-600 disabled:cursor-not-allowed"
-            >
+            <div className="flex gap-2">
+              <button
+                onClick={analyzeFile}
+                disabled={!file || analyzing}
+                className="flex-1 px-4 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded text-sm font-medium hover:from-purple-700 hover:to-indigo-700 disabled:bg-slate-600 disabled:cursor-not-allowed"
+              >
               {analyzing ? 'Analyzing...' : 'Start Analysis'}
             </button>
             {file && (
@@ -281,10 +255,10 @@ export default function AnalyzerContent({ onOpenCleaner, onNextProcess, preloade
               </button>
             )}
           </div>
-        </>
-      ) : (
-        <>
-          {/* Compact Results */}
+          </>
+        ) : (
+          <>
+            {/* Compact Results */}
           <div className={`p-3 rounded-lg border-2 ${getStatusColor(result.status)} border-opacity-50 bg-slate-700`}>
             <h3 className={`text-lg font-bold ${getStatusColor(result.status)} mb-1`}>
               {getStatusText(result.status)}
@@ -525,8 +499,9 @@ export default function AnalyzerContent({ onOpenCleaner, onNextProcess, preloade
               </button>
             )}
           </div>
-        </>
-      )}
+          </>
+        )}
+      </div>
     </div>
   );
 }

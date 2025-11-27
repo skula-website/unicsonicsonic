@@ -120,11 +120,16 @@ export async function POST(request: NextRequest) {
     // Generate download filename with original name restored
     const downloadFilename = generateDownloadFilename(audioFile.name, '_converted');
     
+    // Normalize for Content-Disposition header (RFC 5987 encoding for special chars)
+    const safeDownloadFilename = downloadFilename
+      .replace(/[^\x20-\x7E]/g, '_') // Replace non-ASCII with underscore
+      .replace(/[^a-zA-Z0-9._-]/g, '_'); // Replace special chars except . _ - with underscore
+    
     // Return streamed response
     return new NextResponse(fileStream as any, {
       headers: {
         'Content-Type': outputFormat === 'wav' ? 'audio/wav' : 'audio/mpeg',
-        'Content-Disposition': `attachment; filename="${downloadFilename}"`,
+        'Content-Disposition': `attachment; filename="${safeDownloadFilename}"`,
         'Content-Length': fileSize.toString(),
       },
     });

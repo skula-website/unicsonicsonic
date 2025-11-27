@@ -2,6 +2,9 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { getApiPath } from '../../lib/api';
+import FileSelector from './FileSelector';
+import FileInfoHeader from './FileInfoHeader';
+import { useFileHistory } from '../../lib/fileHistory';
 
 interface TrimmerContentProps {
   onNextProcess?: (file?: File) => void;
@@ -9,7 +12,16 @@ interface TrimmerContentProps {
 }
 
 export default function TrimmerContent({ onNextProcess, preloadedFile }: TrimmerContentProps) {
-  const [audioFile, setAudioFile] = useState<File | null>(preloadedFile || null);
+  const { fileHistory, getLatestFile } = useFileHistory();
+  
+  // File state - prioritize preloadedFile, otherwise use latest from history
+  const getInitialFile = () => {
+    if (preloadedFile) return preloadedFile;
+    const latest = getLatestFile();
+    return latest ? latest.file : null;
+  };
+  
+  const [audioFile, setAudioFile] = useState<File | null>(getInitialFile());
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [audioElement, setAudioElement] = useState<HTMLAudioElement | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -26,23 +38,38 @@ export default function TrimmerContent({ onNextProcess, preloadedFile }: Trimmer
   const [isDragging, setIsDragging] = useState<'start' | 'end' | null>(null);
   
   // Refs
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const waveformCanvasRef = useRef<HTMLCanvasElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [originalFile, setOriginalFile] = useState<File | null>(null);
   const [trimmedFile, setTrimmedFile] = useState<File | null>(null);
   const [trimmedFileUrl, setTrimmedFileUrl] = useState<string | null>(null);
-
-  // Initialize audio when file is loaded
+  
+  // Get current file's process history
+  const currentFileHistory = audioFile 
+    ? fileHistory.find(entry => entry.file.name === audioFile.name)?.processes || []
+    : [];
+  
+  // Initialize file when it's set
   useEffect(() => {
-    if (preloadedFile) {
-      setAudioFile(preloadedFile);
-      const url = URL.createObjectURL(preloadedFile);
-      setAudioUrl(url);
-      setOriginalFile(preloadedFile);
+    if (audioFile && !preloadedFile) {
+      const latest = getLatestFile();
+      if (latest && latest.file.name === audioFile.name) {
+        setProgress('📎 Seneste fil automatisk valgt');
+      }
+    } else if (preloadedFile) {
+      setProgress('📎 Fil automatisk overført fra forrige proces');
     }
-  }, [preloadedFile]);
+  }, [audioFile, preloadedFile, getLatestFile]);
+  
+  // Initialize audio URL when file is loaded
+  useEffect(() => {
+    if (audioFile && !audioUrl) {
+      const url = URL.createObjectURL(audioFile);
+      setAudioUrl(url);
+      setOriginalFile(audioFile);
+    }
+  }, [audioFile, audioUrl]);
 
   // Generate waveform data from audio file
   const generateWaveform = useCallback(async (file: File) => {
@@ -103,6 +130,22 @@ export default function TrimmerContent({ onNextProcess, preloadedFile }: Trimmer
       generateWaveform(audioFile);
     }
   }, [audioFile, waveformData.length, generateWaveform]);
+  
+  // Stop all audio when modal closes/opens (listen to custom event)
+  useEffect(() => {
+    const handleStopAllAudio = () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.currentTime = 0;
+      }
+      setIsPlaying(false);
+    };
+    
+    window.addEventListener('stop-all-audio', handleStopAllAudio);
+    return () => {
+      window.removeEventListener('stop-all-audio', handleStopAllAudio);
+    };
+  }, []);
 
   // Draw waveform on canvas
   useEffect(() => {
@@ -233,28 +276,17 @@ export default function TrimmerContent({ onNextProcess, preloadedFile }: Trimmer
   }, [waveformData, duration, startTime, endTime, currentTime]);
 
   // Handle file drop
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    const file = e.dataTransfer.files[0];
-    if (file && file.type.startsWith('audio/')) {
-      setAudioFile(file);
-      setOriginalFile(file);
-      setWaveformData([]);
-      setError('');
-      setProgress('');
-    }
-  };
 
   // Handle file select
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setAudioFile(file);
-      setOriginalFile(file);
-      setWaveformData([]);
-      setError('');
-      setProgress('');
-    }
+  // Handle file selection from FileSelector
+  const handleFileSelect = (file: File) => {
+    setAudioFile(file);
+    setOriginalFile(file);
+    if (audioUrl) URL.revokeObjectURL(audioUrl);
+    setAudioUrl(null); // Will be recreated in useEffect
+    setWaveformData([]);
+    setError('');
+    setProgress('');
   };
 
   // Handle waveform click/drag
@@ -474,37 +506,31 @@ export default function TrimmerContent({ onNextProcess, preloadedFile }: Trimmer
   }, [audioUrl, trimmedFileUrl]);
 
   return (
-    <div className="space-y-4">
-      {/* File Upload */}
-      {!audioFile ? (
-        <div
-          ref={containerRef}
-          onDrop={handleDrop}
-          onDragOver={(e) => e.preventDefault()}
-          className="border-2 border-dashed border-slate-600 rounded-lg p-8 text-center cursor-pointer hover:border-purple-500 transition-colors"
-          onClick={() => fileInputRef.current?.click()}
-        >
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="audio/*"
-            onChange={handleFileSelect}
-            className="hidden"
-          />
-          <p className="text-gray-300 text-sm mb-2">📎 Drop audio file here or click to select</p>
-          <p className="text-gray-500 text-xs">Supports: WAV, MP3, FLAC, M4A, etc.</p>
-        </div>
-      ) : (
-        <>
-          {/* File Info */}
-          <div className="bg-slate-700 rounded-lg p-3">
-            <p className="text-white text-sm font-medium truncate">📎 {audioFile.name}</p>
+    <div className="space-y-2">
+      {/* File Info Header */}
+      {audioFile && (
+        <FileInfoHeader
+          fileName={audioFile.name}
+          fileSize={audioFile.size}
+          processes={currentFileHistory}
+        />
+      )}
+      
+      <div className="p-3 space-y-2">
+        {/* File Selector */}
+        <FileSelector
+          onFileSelect={handleFileSelect}
+          acceptedFileTypes="audio/*"
+          currentFile={audioFile}
+        />
+        
+        {audioFile && (
+          <>
             <p className="text-gray-400 text-xs mt-1">
               Duration: {formatTime(duration)} | Selected: {formatTime(endTime - startTime)}
             </p>
-          </div>
 
-          {/* Waveform Visualization */}
+            {/* Waveform Visualization */}
           <div className="bg-slate-800 rounded-lg p-4">
             <canvas
               ref={waveformCanvasRef}
@@ -615,8 +641,9 @@ export default function TrimmerContent({ onNextProcess, preloadedFile }: Trimmer
               </button>
             </div>
           )}
-        </>
-      )}
+          </>
+        )}
+      </div>
     </div>
   );
 }

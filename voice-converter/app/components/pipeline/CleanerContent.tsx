@@ -4,6 +4,9 @@ import { useState, useRef, useEffect } from 'react';
 import AudioSpectrum from '../AudioSpectrum';
 import WatermarkEnergyComparison from '../WatermarkEnergyComparison';
 import { getApiPath } from '../../lib/api';
+import FileSelector from './FileSelector';
+import FileInfoHeader from './FileInfoHeader';
+import { useFileHistory } from '../../lib/fileHistory';
 
 interface CleanerContentProps {
   onOpenAnalyzer?: (file?: File) => void;
@@ -12,17 +15,42 @@ interface CleanerContentProps {
 }
 
 export default function CleanerContent({ onOpenAnalyzer, onNextProcess, preloadedFile }: CleanerContentProps) {
-  const [audioFile, setAudioFile] = useState<File | null>(preloadedFile || null);
+  const { fileHistory, getLatestFile } = useFileHistory();
+  
+  // File state - prioritize preloadedFile, otherwise use latest from history
+  const getInitialFile = () => {
+    if (preloadedFile) return preloadedFile;
+    const latest = getLatestFile();
+    return latest ? latest.file : null;
+  };
+  
+  const [audioFile, setAudioFile] = useState<File | null>(getInitialFile());
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState('');
   const [originalFileUrl, setOriginalFileUrl] = useState<string | null>(null);
   const [cleanedFileUrl, setCleanedFileUrl] = useState<string | null>(null);
   const [cleanedFile, setCleanedFile] = useState<File | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [estimatedSeconds, setEstimatedSeconds] = useState<number | null>(null);
   const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Get current file's process history
+  const currentFileHistory = audioFile 
+    ? fileHistory.find(entry => entry.file.name === audioFile.name)?.processes || []
+    : [];
+  
+  // Initialize file when it's set
+  useEffect(() => {
+    if (audioFile && !preloadedFile) {
+      const latest = getLatestFile();
+      if (latest && latest.file.name === audioFile.name) {
+        setProgress('📎 Seneste fil automatisk valgt');
+      }
+    } else if (preloadedFile) {
+      setProgress('📎 Fil automatisk overført fra forrige proces');
+    }
+  }, [audioFile, preloadedFile, getLatestFile]);
 
   const estimateProcessingTime = (fileSizeMB: number): number => {
     if (fileSizeMB < 10) return 40;
@@ -58,37 +86,22 @@ export default function CleanerContent({ onOpenAnalyzer, onNextProcess, preloade
     }
   }, [audioFile, isProcessing]);
 
+  // Initialize file URL when file is set
   useEffect(() => {
-    if (preloadedFile) {
-      setAudioFile(preloadedFile);
-      const url = URL.createObjectURL(preloadedFile);
+    if (audioFile && !originalFileUrl) {
+      const url = URL.createObjectURL(audioFile);
       setOriginalFileUrl(url);
-      setProgress('📎 File automatically transferred from analysis');
-      return () => URL.revokeObjectURL(url);
     }
-  }, [preloadedFile]);
-
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setAudioFile(file);
-      if (originalFileUrl) URL.revokeObjectURL(originalFileUrl);
-      const url = URL.createObjectURL(file);
-      setOriginalFileUrl(url);
-      setProgress('');
-    }
-  };
-
-  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    const file = e.dataTransfer.files[0];
-    if (file && file.type.startsWith('audio/')) {
-      setAudioFile(file);
-      if (originalFileUrl) URL.revokeObjectURL(originalFileUrl);
-      const url = URL.createObjectURL(file);
-      setOriginalFileUrl(url);
-      setProgress('');
-    }
+  }, [audioFile, originalFileUrl]);
+  
+  // Handle file selection from FileSelector
+  const handleFileSelect = (file: File) => {
+    setAudioFile(file);
+    if (originalFileUrl) URL.revokeObjectURL(originalFileUrl);
+    setOriginalFileUrl(null); // Will be recreated in useEffect
+    setCleanedFile(null);
+    setCleanedFileUrl(null);
+    setProgress('');
   };
 
   const handleClean = async () => {
@@ -263,57 +276,23 @@ export default function CleanerContent({ onOpenAnalyzer, onNextProcess, preloade
   };
 
   return (
-    <div className="space-y-2 md:space-y-3">
-      {/* Compact Drop Zone - Responsive padding */}
-      <div
-        onDrop={handleDrop}
-        onDragOver={(e) => e.preventDefault()}
-        className={`border-2 border-dashed rounded-lg p-3 md:p-4 text-center transition-colors ${
-          audioFile
-            ? 'border-green-500 bg-green-500/20'
-            : 'border-slate-600 hover:border-orange-500 bg-slate-900/50'
-        }`}
-      >
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="audio/*"
-          onChange={handleFileSelect}
-          className="hidden"
+    <div className="space-y-2">
+      {/* File Info Header */}
+      {audioFile && (
+        <FileInfoHeader
+          fileName={audioFile.name}
+          fileSize={audioFile.size}
+          processes={currentFileHistory}
         />
-
-        {audioFile ? (
-          <div className="space-y-1">
-            <p className="text-xl md:text-2xl">🎵</p>
-            <p className="font-medium text-white text-xs md:text-sm truncate">{audioFile.name}</p>
-            <p className="text-xs text-gray-300">{(audioFile.size / 1024 / 1024).toFixed(2)} MB</p>
-            {audioFile.size > 30 * 1024 * 1024 && (
-              <div className="mt-1 p-1 md:p-1.5 bg-orange-500/20 border border-orange-500/50 rounded text-xs text-orange-200">
-                ⏱️ Large file - may take 3-8 minutes
-              </div>
-            )}
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="text-orange-400 hover:text-orange-300 text-xs font-medium"
-            >
-              Change File
-            </button>
-          </div>
-        ) : (
-          <div className="space-y-1">
-            <p className="text-xl md:text-2xl">📁</p>
-            <p className="text-gray-300 text-xs md:text-sm">
-              Drag file here or{' '}
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="text-orange-400 hover:text-orange-300 font-medium"
-              >
-                select
-              </button>
-            </p>
-          </div>
-        )}
-      </div>
+      )}
+      
+      <div className="p-3 space-y-2">
+        {/* File Selector */}
+        <FileSelector
+          onFileSelect={handleFileSelect}
+          acceptedFileTypes="audio/*"
+          currentFile={audioFile}
+        />
 
       {/* Compact Info Box - Responsive padding */}
       <div className="bg-orange-500/20 border border-orange-500/50 rounded-lg p-1.5 md:p-2">
@@ -470,6 +449,7 @@ export default function CleanerContent({ onOpenAnalyzer, onNextProcess, preloade
             → Next: Key Detect
           </button>
         )}
+      </div>
       </div>
     </div>
   );

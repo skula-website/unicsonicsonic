@@ -210,13 +210,17 @@ export async function POST(request: NextRequest) {
 
     // Generate download filename with original name restored
     const downloadFilename = generateDownloadFilename(audioFile.name, '_trimmed');
-
+    // Normalize for Content-Disposition header (RFC 5987 encoding for special chars)
+    const safeDownloadFilename = downloadFilename
+      .replace(/[^\x20-\x7E]/g, '_') // Replace non-ASCII with underscore
+      .replace(/[^a-zA-Z0-9._-]/g, '_'); // Replace special chars except . _ - with underscore
+    
     // Return streaming response
     const response = new NextResponse(webStream, {
       status: 200,
       headers: {
         'Content-Type': contentType,
-        'Content-Disposition': `attachment; filename="${downloadFilename}"`,
+        'Content-Disposition': `attachment; filename="${safeDownloadFilename}"`,
         'Content-Length': fileStats.size.toString(),
         'Cache-Control': 'no-cache',
         'Transfer-Encoding': 'chunked',
