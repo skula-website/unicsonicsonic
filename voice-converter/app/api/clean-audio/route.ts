@@ -5,6 +5,7 @@ import path from 'path';
 import { spawn } from 'child_process';
 import { getPythonPath } from '@/app/lib/python';
 import { getPaths } from '@/app/lib/paths';
+import { normalizeFilename, generateDownloadFilename } from '@/app/lib/filename';
 
 // Increase body size limit for large audio files (100MB)
 export const maxDuration = 600; // Max execution time: 10 minutes - extra margin for large files
@@ -49,10 +50,16 @@ export async function POST(request: NextRequest) {
       console.warn(`⚠️ Large file detected (${fileSizeMB.toFixed(2)} MB) - may hit Railway HTTP timeout`);
     }
 
-    // Save uploaded file
+    // Save uploaded file with normalized filenames (safe for file system)
     const timestamp = Date.now();
-    const inputPath = path.join(TEMP_DIR, `input_${timestamp}_${audioFile.name}`);
-    const outputPath = path.join(TEMP_DIR, `cleaned_${timestamp}_${audioFile.name}`);
+    const normalizedInputName = normalizeFilename(audioFile.name, 'input', timestamp);
+    const normalizedOutputName = normalizeFilename(audioFile.name, 'cleaned', timestamp);
+    const inputPath = path.join(TEMP_DIR, normalizedInputName);
+    const outputPath = path.join(TEMP_DIR, normalizedOutputName);
+    
+    console.log(`📝 Original filename: ${audioFile.name}`);
+    console.log(`📝 Normalized input: ${normalizedInputName}`);
+    console.log(`📝 Normalized output: ${normalizedOutputName}`);
 
     const bytes = await audioFile.arrayBuffer();
     const buffer = Buffer.from(bytes);
@@ -201,12 +208,15 @@ export async function POST(request: NextRequest) {
       }
     });
 
+    // Generate download filename with original name restored
+    const downloadFilename = generateDownloadFilename(audioFile.name, '_cleaned');
+    
     // Return streaming response
     const response = new NextResponse(webStream, {
       status: 200,
       headers: {
         'Content-Type': contentType,
-        'Content-Disposition': `attachment; filename="cleaned_${audioFile.name}"`,
+        'Content-Disposition': `attachment; filename="${downloadFilename}"`,
         'Content-Length': fileStats.size.toString(),
         'Cache-Control': 'no-cache',
         'Transfer-Encoding': 'chunked', // Enable chunked transfer
