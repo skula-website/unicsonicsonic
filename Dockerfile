@@ -14,8 +14,9 @@ RUN apt-get update && apt-get install -y \
 # Set working directory
 WORKDIR /app
 
-# Copy package files from voice-converter
-COPY voice-converter/package*.json ./
+# Copy package files from voice-converter FIRST
+COPY voice-converter/package.json ./
+COPY voice-converter/package-lock.json* ./
 
 # Install ALL dependencies (including devDependencies for build)
 RUN npm install
@@ -24,7 +25,7 @@ RUN npm install
 COPY voice-converter/requirements-python.txt* ./
 RUN if [ -f requirements-python.txt ]; then pip3 install --no-cache-dir -r requirements-python.txt --break-system-packages; fi
 
-# Copy application code from voice-converter
+# Copy application code from voice-converter (this will overwrite package.json, but that's OK)
 COPY voice-converter/ .
 
 # Build Next.js app
