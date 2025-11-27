@@ -37,9 +37,9 @@ export default function PipelinePage() {
     4: 'idle', // Key detect (future)
     5: 'idle', // Tabs detector (future)
     6: 'idle', // Noise remover (future)
-    7: 'idle', // Genre detector (future)
-    8: 'idle', // Audio trimmer (future)
-    9: 'idle', // Fade in/out (future)
+    7: 'idle', // Audio trimmer
+    8: 'idle', // Fade in/out (future)
+    9: 'idle', // Genre detector (future)
     10: 'idle', // Auto EQ (future)
   });
 
