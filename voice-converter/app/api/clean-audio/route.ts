@@ -56,6 +56,11 @@ export async function POST(request: NextRequest) {
 
     const bytes = await audioFile.arrayBuffer();
     const buffer = Buffer.from(bytes);
+    
+    console.log(`📝 Writing file to: ${inputPath}`);
+    console.log(`📝 File size: ${(buffer.length / (1024 * 1024)).toFixed(2)} MB`);
+    console.log(`📝 File name: ${audioFile.name}`);
+    
     await writeFile(inputPath, buffer);
 
     // Verify file was saved correctly and wait for file system to sync
@@ -63,7 +68,7 @@ export async function POST(request: NextRequest) {
     
     // Wait a bit and verify file exists and has correct size (fix timing issues)
     let retries = 0;
-    const maxRetries = 10;
+    const maxRetries = 20; // Increased retries
     let inputStats;
     
     while (retries < maxRetries) {
@@ -71,18 +76,23 @@ export async function POST(request: NextRequest) {
         inputStats = await stat(inputPath);
         // Verify file size matches what we wrote
         if (inputStats.size === buffer.length) {
-          console.log(`✓ File saved to: ${inputPath} (${(inputStats.size / (1024 * 1024)).toFixed(2)} MB)`);
+          console.log(`✓ File saved and verified: ${inputPath} (${(inputStats.size / (1024 * 1024)).toFixed(2)} MB)`);
+          console.log(`✓ File exists check: ${existsSync(inputPath)}`);
           break;
+        } else {
+          console.log(`⚠️ File size mismatch: expected ${buffer.length}, got ${inputStats.size}, retry ${retries + 1}/${maxRetries}`);
         }
       } catch (error) {
-        // File doesn't exist yet, wait a bit
+        console.log(`⚠️ File not found yet, retry ${retries + 1}/${maxRetries}: ${error}`);
       }
       
       if (retries < maxRetries - 1) {
-        await new Promise(resolve => setTimeout(resolve, 100)); // Wait 100ms
+        await new Promise(resolve => setTimeout(resolve, 200)); // Wait 200ms
         retries++;
       } else {
-        throw new Error(`File was not saved correctly after ${maxRetries} retries`);
+        // Final check before throwing error
+        const finalCheck = existsSync(inputPath);
+        throw new Error(`File was not saved correctly after ${maxRetries} retries. File exists: ${finalCheck}, Path: ${inputPath}`);
       }
     }
 
