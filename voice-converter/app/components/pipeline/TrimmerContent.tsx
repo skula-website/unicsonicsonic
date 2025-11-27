@@ -23,7 +23,7 @@ export default function TrimmerContent({ onNextProcess, preloadedFile }: Trimmer
   const [startTime, setStartTime] = useState(0);
   const [endTime, setEndTime] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [isDragging, setIsDragging] = useState<'start' | 'end' | null>(null);
+  const [isDragging, setIsDragging] = useState<'start' | 'end' | 'playback' | null>(null);
   
   // Refs
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -281,29 +281,33 @@ export default function TrimmerContent({ onNextProcess, preloadedFile }: Trimmer
     
     // Check if clicking in triangle area ONLY (above waveform)
     // Don't check marker lines to avoid conflicts
+    const hitAreaYTop = handleY - 5;
+    const hitAreaYBottom = padding + 5;
+    
     const isInStartHandle = x >= startX - hitAreaWidth / 2 && x <= startX + hitAreaWidth / 2 && 
-                            y >= handleY - 5 && y <= padding + 5;
+                            y >= hitAreaYTop && y <= hitAreaYBottom;
     const isInEndHandle = x >= endX - hitAreaWidth / 2 && x <= endX + hitAreaWidth / 2 && 
-                          y >= handleY - 5 && y <= padding + 5;
+                          y >= hitAreaYTop && y <= hitAreaYBottom;
     
     // Check if clicking in playback position triangle
-    const playX = currentTime > 0 ? padding + (currentTime / duration) * drawWidth : -1;
+    const playX = currentTime > 0 && currentTime <= duration ? padding + (currentTime / duration) * drawWidth : -1;
     const isInPlaybackHandle = playX > 0 && 
                                x >= playX - hitAreaWidth / 2 && x <= playX + hitAreaWidth / 2 && 
-                               y >= handleY - 5 && y <= padding + 5;
+                               y >= hitAreaYTop && y <= hitAreaYBottom;
     
     if (isInStartHandle) {
       setIsDragging('start');
     } else if (isInEndHandle) {
       setIsDragging('end');
     } else if (isInPlaybackHandle) {
-      // Don't allow dragging playback position - it follows audio playback
-      // Just seek to clicked position instead
+      // Allow dragging playback position
+      setIsDragging('playback');
+      // Also seek immediately when clicking
       if (audioRef.current) {
         audioRef.current.currentTime = Math.max(startTime, Math.min(endTime, clickTime));
       }
     } else {
-      // Click in waveform - seek to that position
+      // Click in waveform - seek to that position (keep existing functionality)
       if (audioRef.current) {
         audioRef.current.currentTime = Math.max(startTime, Math.min(endTime, clickTime));
       }
@@ -325,6 +329,13 @@ export default function TrimmerContent({ onNextProcess, preloadedFile }: Trimmer
       setStartTime(Math.min(clampedTime, endTime - 0.1)); // Min 0.1s selection
     } else if (isDragging === 'end') {
       setEndTime(Math.max(clampedTime, startTime + 0.1)); // Min 0.1s selection
+    } else if (isDragging === 'playback') {
+      // Drag playback position - seek to new position
+      const seekTime = Math.max(startTime, Math.min(endTime, clampedTime));
+      if (audioRef.current) {
+        audioRef.current.currentTime = seekTime;
+        setCurrentTime(seekTime);
+      }
     }
   };
 
