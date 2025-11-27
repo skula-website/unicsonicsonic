@@ -55,7 +55,10 @@ def remove_fingerprint(input_path, output_path):
         # soundfile can only write WAV, FLAC, OGG - not MP3
         # So we need to detect format and convert if necessary
         output_ext = os.path.splitext(output_path)[1].lower()
-        print(f"Detected output extension: '{output_ext}' from path: '{output_path}'", flush=True)
+        print(f"DEBUG: Output path: '{output_path}'", flush=True)
+        print(f"DEBUG: Detected output extension: '{output_ext}' (type: {type(output_ext)}, len: {len(output_ext)})", flush=True)
+        print(f"DEBUG: Extension == '.mp3': {output_ext == '.mp3'}", flush=True)
+        print(f"DEBUG: Extension repr: {repr(output_ext)}", flush=True)
         
         if output_ext == '.mp3':
             # Save as WAV first, then convert to MP3
