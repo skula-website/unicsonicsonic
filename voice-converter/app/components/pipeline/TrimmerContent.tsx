@@ -159,7 +159,7 @@ export default function TrimmerContent({ onNextProcess, preloadedFile }: Trimmer
       }
     }
     
-    // Draw playback position indicator
+    // Draw playback position indicator (thin line, so trim markers are visible)
     if (currentTime > 0 && currentTime <= duration) {
       const playX = padding + (currentTime / duration) * drawWidth;
       ctx.strokeStyle = '#fbbf24'; // amber-400
@@ -170,21 +170,49 @@ export default function TrimmerContent({ onNextProcess, preloadedFile }: Trimmer
       ctx.stroke();
     }
     
-    // Draw start handle
+    // Draw start marker (thin line)
     const startX = padding + (startTime / duration) * drawWidth;
-    ctx.fillStyle = '#10b981'; // emerald-500
-    ctx.fillRect(startX - 5, padding, 10, drawHeight);
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(startX - 5, padding, 10, drawHeight);
+    ctx.strokeStyle = '#10b981'; // emerald-500
+    ctx.lineWidth = 1; // Very thin line
+    ctx.beginPath();
+    ctx.moveTo(startX, padding);
+    ctx.lineTo(startX, padding + drawHeight);
+    ctx.stroke();
     
-    // Draw end handle
-    const endX = padding + (endTime / duration) * drawWidth;
-    ctx.fillStyle = '#ef4444'; // red-500
-    ctx.fillRect(endX - 5, padding, 10, drawHeight);
+    // Draw start handle (triangle pointing down)
+    const handleSize = 12;
+    const handleY = padding - handleSize;
+    ctx.fillStyle = '#10b981'; // emerald-500
+    ctx.beginPath();
+    ctx.moveTo(startX, handleY);
+    ctx.lineTo(startX - handleSize / 2, handleY + handleSize);
+    ctx.lineTo(startX + handleSize / 2, handleY + handleSize);
+    ctx.closePath();
+    ctx.fill();
     ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(endX - 5, padding, 10, drawHeight);
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    
+    // Draw end marker (thin line)
+    const endX = padding + (endTime / duration) * drawWidth;
+    ctx.strokeStyle = '#ef4444'; // red-500
+    ctx.lineWidth = 1; // Very thin line
+    ctx.beginPath();
+    ctx.moveTo(endX, padding);
+    ctx.lineTo(endX, padding + drawHeight);
+    ctx.stroke();
+    
+    // Draw end handle (triangle pointing down)
+    ctx.fillStyle = '#ef4444'; // red-500
+    ctx.beginPath();
+    ctx.moveTo(endX, handleY);
+    ctx.lineTo(endX - handleSize / 2, handleY + handleSize);
+    ctx.lineTo(endX + handleSize / 2, handleY + handleSize);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
     
   }, [waveformData, duration, startTime, endTime, currentTime]);
 
@@ -220,17 +248,28 @@ export default function TrimmerContent({ onNextProcess, preloadedFile }: Trimmer
     const canvas = waveformCanvasRef.current;
     const rect = canvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
     const padding = 20;
     const drawWidth = canvas.width - padding * 2;
     const clickTime = ((x - padding) / drawWidth) * duration;
     
-    // Check if clicking near start or end handle
+    // Check if clicking near start or end handle (larger hit area for triangle)
     const startX = padding + (startTime / duration) * drawWidth;
     const endX = padding + (endTime / duration) * drawWidth;
+    const handleSize = 12;
+    const handleY = padding - handleSize;
     
-    if (Math.abs(x - startX) < 10) {
+    // Check if clicking in triangle area (above waveform) or on marker line
+    const isInStartHandle = (x >= startX - handleSize / 2 && x <= startX + handleSize / 2 && 
+                              y >= handleY && y <= padding + 20) || 
+                            (Math.abs(x - startX) < 8 && y >= padding && y <= padding + 200);
+    const isInEndHandle = (x >= endX - handleSize / 2 && x <= endX + handleSize / 2 && 
+                            y >= handleY && y <= padding + 20) || 
+                          (Math.abs(x - endX) < 8 && y >= padding && y <= padding + 200);
+    
+    if (isInStartHandle) {
       setIsDragging('start');
-    } else if (Math.abs(x - endX) < 10) {
+    } else if (isInEndHandle) {
       setIsDragging('end');
     } else {
       // Click in waveform - seek to that position
@@ -439,7 +478,7 @@ export default function TrimmerContent({ onNextProcess, preloadedFile }: Trimmer
             <canvas
               ref={waveformCanvasRef}
               width={800}
-              height={200}
+              height={220}
               className="w-full h-auto cursor-pointer"
               onMouseDown={handleWaveformMouseDown}
               onMouseMove={handleWaveformMouseMove}
