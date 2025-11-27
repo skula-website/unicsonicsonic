@@ -284,9 +284,15 @@ export default function TrimmerContent({ onNextProcess, preloadedFile }: Trimmer
     const hitAreaYTop = handleY - 5;
     const hitAreaYBottom = padding + 5;
     
-    const isInStartHandle = x >= startX - hitAreaWidth / 2 && x <= startX + hitAreaWidth / 2 && 
+    // Calculate hit areas for each marker
+    const startHandleLeft = startX - hitAreaWidth / 2;
+    const startHandleRight = startX + hitAreaWidth / 2;
+    const endHandleLeft = endX - hitAreaWidth / 2;
+    const endHandleRight = endX + hitAreaWidth / 2;
+    
+    const isInStartHandle = x >= startHandleLeft && x <= startHandleRight && 
                             y >= hitAreaYTop && y <= hitAreaYBottom;
-    const isInEndHandle = x >= endX - hitAreaWidth / 2 && x <= endX + hitAreaWidth / 2 && 
+    const isInEndHandle = x >= endHandleLeft && x <= endHandleRight && 
                           y >= hitAreaYTop && y <= hitAreaYBottom;
     
     // Check if clicking in playback position triangle
@@ -295,13 +301,18 @@ export default function TrimmerContent({ onNextProcess, preloadedFile }: Trimmer
                                x >= playX - hitAreaWidth / 2 && x <= playX + hitAreaWidth / 2 && 
                                y >= hitAreaYTop && y <= hitAreaYBottom;
     
-    if (isInStartHandle) {
-      setIsDragging('start');
-    } else if (isInEndHandle) {
+    // Priority: end marker > start marker > playback > waveform click
+    // This ensures end marker can always be grabbed even if overlapping with playback
+    if (isInEndHandle) {
       setIsDragging('end');
+      e.preventDefault(); // Prevent default to ensure drag works
+    } else if (isInStartHandle) {
+      setIsDragging('start');
+      e.preventDefault();
     } else if (isInPlaybackHandle) {
       // Allow dragging playback position
       setIsDragging('playback');
+      e.preventDefault();
       // Also seek immediately when clicking
       if (audioRef.current) {
         audioRef.current.currentTime = Math.max(startTime, Math.min(endTime, clickTime));
@@ -326,9 +337,14 @@ export default function TrimmerContent({ onNextProcess, preloadedFile }: Trimmer
     const clampedTime = Math.max(0, Math.min(duration, clickTime));
     
     if (isDragging === 'start') {
-      setStartTime(Math.min(clampedTime, endTime - 0.1)); // Min 0.1s selection
+      // Start marker: can move left or right, but max is endTime - 0.1
+      const newStartTime = Math.min(clampedTime, endTime - 0.1);
+      setStartTime(newStartTime);
     } else if (isDragging === 'end') {
-      setEndTime(Math.max(clampedTime, startTime + 0.1)); // Min 0.1s selection
+      // End marker: can move left or right, but min is startTime + 0.1
+      // This allows it to move both left (decrease) and right (increase)
+      const newEndTime = Math.max(clampedTime, startTime + 0.1);
+      setEndTime(newEndTime);
     } else if (isDragging === 'playback') {
       // Drag playback position - seek to new position
       const seekTime = Math.max(startTime, Math.min(endTime, clampedTime));
@@ -342,6 +358,53 @@ export default function TrimmerContent({ onNextProcess, preloadedFile }: Trimmer
   const handleWaveformMouseUp = () => {
     setIsDragging(null);
   };
+
+  // Global mouse events for dragging (works even when mouse leaves canvas)
+  useEffect(() => {
+    if (!isDragging || !waveformCanvasRef.current || !duration) return;
+
+    const handleGlobalMouseMove = (e: MouseEvent) => {
+      if (!waveformCanvasRef.current || !duration) return;
+      
+      const canvas = waveformCanvasRef.current;
+      const rect = canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const padding = 20;
+      const drawWidth = canvas.width - padding * 2;
+      const clickTime = ((x - padding) / drawWidth) * duration;
+      const clampedTime = Math.max(0, Math.min(duration, clickTime));
+      
+      if (isDragging === 'start') {
+        // Start marker: can move left or right, but max is endTime - 0.1
+        const newStartTime = Math.min(clampedTime, endTime - 0.1);
+        setStartTime(newStartTime);
+      } else if (isDragging === 'end') {
+        // End marker: can move left or right, but min is startTime + 0.1
+        // This allows it to move both left (decrease) and right (increase)
+        const newEndTime = Math.max(clampedTime, startTime + 0.1);
+        setEndTime(newEndTime);
+      } else if (isDragging === 'playback') {
+        // Drag playback position - seek to new position
+        const seekTime = Math.max(startTime, Math.min(endTime, clampedTime));
+        if (audioRef.current) {
+          audioRef.current.currentTime = seekTime;
+          setCurrentTime(seekTime);
+        }
+      }
+    };
+
+    const handleGlobalMouseUp = () => {
+      setIsDragging(null);
+    };
+
+    window.addEventListener('mousemove', handleGlobalMouseMove);
+    window.addEventListener('mouseup', handleGlobalMouseUp);
+
+    return () => {
+      window.removeEventListener('mousemove', handleGlobalMouseMove);
+      window.removeEventListener('mouseup', handleGlobalMouseUp);
+    };
+  }, [isDragging, duration, startTime, endTime]);
 
   // Playback controls
   const handlePlay = () => {
