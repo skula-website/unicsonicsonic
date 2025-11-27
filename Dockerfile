@@ -17,7 +17,9 @@ WORKDIR /app
 # Copy package files from voice-converter
 # Note: voice-converter is in root, so we copy from voice-converter/ subdirectory
 COPY voice-converter/package.json ./package.json
-COPY voice-converter/package-lock.json* ./package-lock.json 2>/dev/null || true
+
+# Copy package-lock.json if it exists (optional - npm install will create it if missing)
+COPY voice-converter/package-lock.json* ./
 
 # Verify package.json exists before installing
 RUN test -f package.json && echo "package.json found" || (echo "ERROR: package.json not found" && ls -la && exit 1)
