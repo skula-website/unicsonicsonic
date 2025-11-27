@@ -114,6 +114,10 @@ if __name__ == "__main__":
     input_path = sys.argv[1]
     output_path = sys.argv[2]
     
+    print(f"DEBUG: Script started with input_path: '{input_path}'", flush=True)
+    print(f"DEBUG: Script started with output_path: '{output_path}'", flush=True)
+    print(f"DEBUG: sys.argv = {sys.argv}", flush=True)
+    
     success = remove_fingerprint(input_path, output_path)
     sys.exit(0 if success else 1)
 

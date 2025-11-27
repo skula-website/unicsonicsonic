@@ -111,7 +111,9 @@ export async function POST(request: NextRequest) {
     ]);
 
     if (exitCode !== 0) {
-      throw new Error(`Python script failed with exit code ${exitCode}\n${stderr}`);
+      // Include both stdout and stderr in error message for debugging
+      const debugInfo = stdout ? `\n\nSTDOUT:\n${stdout}` : '';
+      throw new Error(`Python script failed with exit code ${exitCode}${debugInfo}\n\nSTDERR:\n${stderr}`);
     }
 
     // Get file stats
