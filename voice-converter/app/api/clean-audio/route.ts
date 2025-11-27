@@ -58,7 +58,10 @@ export async function POST(request: NextRequest) {
     const buffer = Buffer.from(bytes);
     await writeFile(inputPath, buffer);
 
-    console.log(`✓ File saved to: ${inputPath}`);
+    // Verify file was saved correctly
+    const { stat } = await import('fs/promises');
+    const inputStats = await stat(inputPath);
+    console.log(`✓ File saved to: ${inputPath} (${(inputStats.size / (1024 * 1024)).toFixed(2)} MB)`);
 
     // Run Python fingerprint remover
     const pythonScript = path.join(SCRIPTS_DIR, 'remove_audio_fingerprint.py');
@@ -66,6 +69,8 @@ export async function POST(request: NextRequest) {
 
     console.log(`🐍 Running Python script: ${pythonScript}`);
     console.log(`🐍 Python path: ${pythonPath}`);
+    console.log(`🐍 Input path: ${inputPath}`);
+    console.log(`🐍 Output path: ${outputPath}`);
 
     const pythonProcess = spawn(pythonPath, [
       pythonScript,

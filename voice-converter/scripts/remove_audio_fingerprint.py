@@ -20,7 +20,14 @@ def remove_fingerprint(input_path, output_path):
         output_path: Path to output cleaned audio file
     """
     try:
-        print(f"Loading audio: {input_path}")
+        # Verify input file exists
+        if not os.path.exists(input_path):
+            raise FileNotFoundError(f"Input file does not exist: {input_path}")
+        
+        print(f"Loading audio: {input_path}", flush=True)
+        print(f"File exists: {os.path.exists(input_path)}", flush=True)
+        print(f"File size: {os.path.getsize(input_path) if os.path.exists(input_path) else 'N/A'} bytes", flush=True)
+        
         # Load audio file
         y, sr = librosa.load(input_path, sr=None)
         duration = len(y) / sr
