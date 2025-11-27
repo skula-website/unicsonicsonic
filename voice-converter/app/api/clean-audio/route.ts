@@ -144,8 +144,7 @@ export async function POST(request: NextRequest) {
       throw new Error(`Python script failed with exit code ${exitCode}${debugInfo}\n\nSTDERR:\n${stderr}`);
     }
 
-    // Get file stats
-    const { stat } = await import('fs/promises');
+    // Get file stats (stat already imported earlier in function)
     const fileStats = await stat(outputPath);
     const cleanedFileSizeMB = fileStats.size / (1024 * 1024);
     console.log(`📊 Cleaned file size: ${cleanedFileSizeMB.toFixed(2)} MB`);
