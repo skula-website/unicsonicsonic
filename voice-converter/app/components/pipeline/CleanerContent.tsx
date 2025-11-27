@@ -212,9 +212,10 @@ export default function CleanerContent({ onOpenAnalyzer, onNextProcess, preloade
       const contentDisposition = response.headers.get('Content-Disposition');
       let cleanedFileName = audioFile.name.replace(/\.(wav|mp3|m4a|flac)$/i, '_cleaned.wav');
       if (contentDisposition) {
-        const filenameMatch = contentDisposition.match(/filename="?(.+)"?/);
+        const filenameMatch = contentDisposition.match(/filename="?(.+?)"?$/);
         if (filenameMatch) {
-          cleanedFileName = filenameMatch[1];
+          // Strip any quotes from the filename
+          cleanedFileName = filenameMatch[1].replace(/^["']|["']$/g, '');
         }
       }
       

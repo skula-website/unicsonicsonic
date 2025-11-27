@@ -177,9 +177,10 @@ export default function ConverterContent({ onNextProcess, preloadedFile }: Conve
       const contentDisposition = response.headers.get('Content-Disposition');
       let filename = file.name.replace(/\.[^/.]+$/, '') + '_converted.' + outputFormat;
       if (contentDisposition) {
-        const filenameMatch = contentDisposition.match(/filename="?(.+)"?/);
+        const filenameMatch = contentDisposition.match(/filename="?(.+?)"?$/);
         if (filenameMatch) {
-          filename = filenameMatch[1];
+          // Strip any quotes from the filename
+          filename = filenameMatch[1].replace(/^["']|["']$/g, '');
         }
       }
 
