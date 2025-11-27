@@ -173,9 +173,9 @@ export default function ConverterContent({ onNextProcess, preloadedFile }: Conve
         throw new Error(errorData.error || `HTTP ${response.status}`);
       }
 
-      // Get filename from Content-Disposition header or generate one
+      // Get filename from Content-Disposition header (should be normalized with original name)
       const contentDisposition = response.headers.get('Content-Disposition');
-      let filename = file.name.replace(/\.[^/.]+$/, '') + '.' + outputFormat;
+      let filename = file.name.replace(/\.[^/.]+$/, '') + '_converted.' + outputFormat;
       if (contentDisposition) {
         const filenameMatch = contentDisposition.match(/filename="?(.+)"?/);
         if (filenameMatch) {
@@ -183,7 +183,7 @@ export default function ConverterContent({ onNextProcess, preloadedFile }: Conve
         }
       }
 
-      // Convert response to blob and create File
+      // Convert response to blob and create File with normalized name
       const blob = await response.blob();
       const convertedBlob = new File([blob], filename, { type: blob.type });
       setConvertedFile(convertedBlob);

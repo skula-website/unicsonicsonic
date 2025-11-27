@@ -60,11 +60,18 @@ export async function POST(request: NextRequest) {
     
     console.log(`🔄 Audio conversion request: ${audioFile.name} (${fileSizeMB.toFixed(2)} MB, ${detectedType}) → ${outputFormat.toUpperCase()}`);
 
-    // Save uploaded file
+    // Save uploaded file with normalized filenames
     const timestamp = Date.now();
-    tempInputPath = join(TEMP_DIR, `convert_input_${timestamp}_${audioFile.name}`);
+    const normalizedInputName = normalizeFilename(audioFile.name, 'input', timestamp);
+    const normalizedOutputName = normalizeFilename(audioFile.name, 'converted', timestamp);
+    tempInputPath = join(TEMP_DIR, normalizedInputName);
     const outputExtension = outputFormat === 'wav' ? 'wav' : 'mp3';
-    tempOutputPath = join(TEMP_DIR, `convert_output_${timestamp}.${outputExtension}`);
+    // Update extension in normalized name
+    tempOutputPath = join(TEMP_DIR, normalizedOutputName.replace(/\.[^.]+$/, `.${outputExtension}`));
+    
+    console.log(`📝 Original filename: ${audioFile.name}`);
+    console.log(`📝 Normalized input: ${normalizedInputName}`);
+    console.log(`📝 Normalized output: ${tempOutputPath.split('/').pop()}`);
 
     const buffer = Buffer.from(await audioFile.arrayBuffer());
     writeFileSync(tempInputPath, buffer);
@@ -109,11 +116,14 @@ export async function POST(request: NextRequest) {
     // Create readable stream
     const fileStream = createReadStream(tempOutputPath);
 
+    // Generate download filename with original name restored
+    const downloadFilename = generateDownloadFilename(audioFile.name, '_converted');
+    
     // Return streamed response
     return new NextResponse(fileStream as any, {
       headers: {
         'Content-Type': outputFormat === 'wav' ? 'audio/wav' : 'audio/mpeg',
-        'Content-Disposition': `attachment; filename="${audioFile.name.replace(/\.[^/.]+$/, '')}.${outputExtension}"`,
+        'Content-Disposition': `attachment; filename="${downloadFilename}"`,
         'Content-Length': fileSize.toString(),
       },
     });

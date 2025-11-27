@@ -5,11 +5,12 @@
 /**
  * Normalize filename for safe use in file system
  * Removes spaces, special characters, and ensures safe file names
+ * Format: prefix_timestamp_(originalname).ext
  * 
  * @param originalFilename Original filename from user
- * @param prefix Optional prefix (e.g., 'input', 'cleaned')
+ * @param prefix Optional prefix (e.g., 'input', 'cleaned', 'converted')
  * @param timestamp Optional timestamp to make unique
- * @returns Normalized filename safe for file system
+ * @returns Normalized filename safe for file system with original name in parentheses
  */
 export function normalizeFilename(
   originalFilename: string,
@@ -25,19 +26,38 @@ export function normalizeFilename(
     ? originalFilename.substring(lastDot)
     : '';
   
-  // Normalize: remove spaces, special chars, keep only alphanumeric, dash, underscore
-  const normalized = nameWithoutExt
+  // Normalize original name: remove spaces, special chars, keep only alphanumeric, dash, underscore
+  const normalizedOriginal = nameWithoutExt
     .replace(/\s+/g, '_')  // Replace spaces with underscore
     .replace(/[^a-zA-Z0-9_-]/g, '')  // Remove special characters
     .substring(0, 50);  // Limit length
   
-  // Build final filename
+  // Build final filename: prefix_timestamp_(originalname).ext
   const parts: string[] = [];
   if (prefix) parts.push(prefix);
   if (timestamp) parts.push(timestamp.toString());
-  parts.push(normalized);
+  parts.push(`(${normalizedOriginal})`);
   
   return parts.join('_') + extension.toLowerCase();
+}
+
+/**
+ * Generate display filename for user (keeps original name visible)
+ * Format: prefix_(originalname).ext
+ */
+export function generateDisplayFilename(
+  originalFilename: string,
+  prefix: string
+): string {
+  const lastDot = originalFilename.lastIndexOf('.');
+  const nameWithoutExt = lastDot > 0 
+    ? originalFilename.substring(0, lastDot)
+    : originalFilename;
+  const extension = lastDot > 0 
+    ? originalFilename.substring(lastDot)
+    : '';
+  
+  return `${prefix}_(${nameWithoutExt})${extension}`;
 }
 
 /**
