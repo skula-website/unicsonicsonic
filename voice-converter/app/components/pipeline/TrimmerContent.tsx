@@ -179,14 +179,14 @@ export default function TrimmerContent({ onNextProcess, preloadedFile }: Trimmer
     ctx.lineTo(startX, padding + drawHeight);
     ctx.stroke();
     
-    // Draw start handle (triangle pointing down)
+    // Draw start handle (triangle pointing down, tip at top of marker line)
     const handleSize = 12;
-    const handleY = padding - handleSize;
+    const handleY = padding - handleSize; // Base of triangle above waveform
     ctx.fillStyle = '#10b981'; // emerald-500
     ctx.beginPath();
-    ctx.moveTo(startX, handleY);
-    ctx.lineTo(startX - handleSize / 2, handleY + handleSize);
-    ctx.lineTo(startX + handleSize / 2, handleY + handleSize);
+    ctx.moveTo(startX, padding); // Tip at top of marker line
+    ctx.lineTo(startX - handleSize / 2, handleY); // Left corner of base
+    ctx.lineTo(startX + handleSize / 2, handleY); // Right corner of base
     ctx.closePath();
     ctx.fill();
     ctx.strokeStyle = '#ffffff';
@@ -202,12 +202,12 @@ export default function TrimmerContent({ onNextProcess, preloadedFile }: Trimmer
     ctx.lineTo(endX, padding + drawHeight);
     ctx.stroke();
     
-    // Draw end handle (triangle pointing down)
+    // Draw end handle (triangle pointing down, tip at top of marker line)
     ctx.fillStyle = '#ef4444'; // red-500
     ctx.beginPath();
-    ctx.moveTo(endX, handleY);
-    ctx.lineTo(endX - handleSize / 2, handleY + handleSize);
-    ctx.lineTo(endX + handleSize / 2, handleY + handleSize);
+    ctx.moveTo(endX, padding); // Tip at top of marker line
+    ctx.lineTo(endX - handleSize / 2, handleY); // Left corner of base
+    ctx.lineTo(endX + handleSize / 2, handleY); // Right corner of base
     ctx.closePath();
     ctx.fill();
     ctx.strokeStyle = '#ffffff';
@@ -257,14 +257,14 @@ export default function TrimmerContent({ onNextProcess, preloadedFile }: Trimmer
     const startX = padding + (startTime / duration) * drawWidth;
     const endX = padding + (endTime / duration) * drawWidth;
     const handleSize = 12;
-    const handleY = padding - handleSize;
+    const handleY = padding - handleSize; // Base of triangle above waveform
     
     // Check if clicking in triangle area (above waveform) or on marker line
     const isInStartHandle = (x >= startX - handleSize / 2 && x <= startX + handleSize / 2 && 
-                              y >= handleY && y <= padding + 20) || 
+                              y >= handleY && y <= padding + 5) || 
                             (Math.abs(x - startX) < 8 && y >= padding && y <= padding + 200);
     const isInEndHandle = (x >= endX - handleSize / 2 && x <= endX + handleSize / 2 && 
-                            y >= handleY && y <= padding + 20) || 
+                            y >= handleY && y <= padding + 5) || 
                           (Math.abs(x - endX) < 8 && y >= padding && y <= padding + 200);
     
     if (isInStartHandle) {
