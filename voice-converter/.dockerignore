@@ -1,0 +1,17 @@
+node_modules
+.next
+.git
+.gitignore
+*.md
+.env*.local
+temp
+output
+processed
+.DS_Store
+venv
+venv-unicsonic
+__pycache__
+*.pyc
+.turbo
+.vercel
+

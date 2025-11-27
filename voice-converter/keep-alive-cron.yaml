@@ -1,0 +1,22 @@
+# Render.com Cron Job - Keep Service Awake
+# Add this as a separate Cron Job service on Render.com
+
+services:
+  - type: cron
+    name: unicsonic-keepalive
+    schedule: "*/14 * * * *"  # Every 14 minutes
+    runtime: node
+    buildCommand: echo "No build needed"
+    startCommand: curl https://unicsonic.onrender.com/api/health
+    region: frankfurt
+    plan: free  # Cron jobs are always free
+    
+    envVars:
+      - key: SERVICE_URL
+        value: https://unicsonic.onrender.com
+
+# Alternative: Use external service (cron-job.org) to ping your endpoint every 14 minutes
+# Visit: https://cron-job.org/
+# Add job: GET https://unicsonic.onrender.com/api/health every 14 minutes
+
+

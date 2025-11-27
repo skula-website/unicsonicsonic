@@ -1,0 +1,74 @@
+#!/usr/bin/env python3
+"""
+Audio Fingerprint Removal Script
+Removes AI watermarks by applying a low-pass filter at 16 kHz to remove frequencies above 18 kHz.
+"""
+
+import sys
+import numpy as np
+import librosa
+import soundfile as sf
+
+def remove_fingerprint(input_path, output_path):
+    """
+    Remove audio fingerprint by filtering out frequencies above 18 kHz.
+    
+    Args:
+        input_path: Path to input audio file
+        output_path: Path to output cleaned audio file
+    """
+    try:
+        print(f"Loading audio: {input_path}")
+        # Load audio file
+        y, sr = librosa.load(input_path, sr=None)
+        duration = len(y) / sr
+        print(f"Sample rate: {sr} Hz, Duration: {duration:.2f}s")
+        
+        # Apply low-pass filter at 16 kHz to remove watermark frequencies (18-22 kHz)
+        # This preserves audio quality while removing watermarks
+        cutoff_freq = 16000  # 16 kHz cutoff
+        
+        # Design a low-pass filter
+        from scipy import signal
+        
+        # Normalize frequency to Nyquist frequency (0-1 range)
+        nyquist = sr / 2
+        normalized_cutoff = cutoff_freq / nyquist
+        
+        # Design Butterworth filter
+        b, a = signal.butter(4, normalized_cutoff, btype='low', analog=False)
+        
+        # Apply filter
+        print(f"Applying low-pass filter at {cutoff_freq} Hz...")
+        if y.ndim == 1:
+            # Mono audio
+            y_filtered = signal.filtfilt(b, a, y)
+        else:
+            # Stereo audio - apply filter to each channel
+            y_filtered = np.zeros_like(y)
+            for channel in range(y.shape[1]):
+                y_filtered[:, channel] = signal.filtfilt(b, a, y[:, channel])
+        
+        # Save cleaned audio
+        print(f"Saving cleaned audio: {output_path}")
+        sf.write(output_path, y_filtered, sr)
+        
+        print(f"Fingerprint removal successful: {output_path}")
+        return True
+        
+    except Exception as e:
+        error_msg = f"Fingerprint removal error: {str(e)}"
+        print(error_msg, file=sys.stderr)
+        return False
+
+if __name__ == "__main__":
+    if len(sys.argv) < 3:
+        print("Usage: remove_audio_fingerprint.py <input> <output>", file=sys.stderr)
+        sys.exit(1)
+    
+    input_path = sys.argv[1]
+    output_path = sys.argv[2]
+    
+    success = remove_fingerprint(input_path, output_path)
+    sys.exit(0 if success else 1)
+
