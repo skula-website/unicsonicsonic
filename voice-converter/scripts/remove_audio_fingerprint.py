@@ -111,8 +111,9 @@ if __name__ == "__main__":
         print("Usage: remove_audio_fingerprint.py <input> <output>", file=sys.stderr)
         sys.exit(1)
     
-    input_path = sys.argv[1]
-    output_path = sys.argv[2]
+    # Strip any extra quotes from paths (sometimes paths come with extra quotes)
+    input_path = sys.argv[1].strip('"\'')
+    output_path = sys.argv[2].strip('"\'')
     
     print(f"DEBUG: Script started with input_path: '{input_path}'", flush=True)
     print(f"DEBUG: Script started with output_path: '{output_path}'", flush=True)
