@@ -4,6 +4,7 @@ import { writeFileSync, unlinkSync, existsSync, mkdirSync, createReadStream } fr
 import { join } from 'path';
 import { getPythonPath } from '@/app/lib/python';
 import { getPaths } from '@/app/lib/paths';
+import { normalizeFilename, generateDownloadFilename } from '@/app/lib/filename';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 600; // 10 minutes
