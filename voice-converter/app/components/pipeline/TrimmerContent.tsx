@@ -159,11 +159,34 @@ export default function TrimmerContent({ onNextProcess, preloadedFile }: Trimmer
       }
     }
     
-    // Draw playback position indicator (thin line with triangle)
+    // Define handle size and position (used by all markers)
+    const handleSize = 12;
+    const handleY = padding - handleSize; // Base of triangle above waveform
+    
+    // Draw start marker (thin line)
+    const startX = padding + (startTime / duration) * drawWidth;
+    ctx.strokeStyle = '#10b981'; // emerald-500
+    ctx.lineWidth = 1; // Very thin line
+    ctx.beginPath();
+    ctx.moveTo(startX, padding);
+    ctx.lineTo(startX, padding + drawHeight);
+    ctx.stroke();
+    
+    // Draw start handle (triangle pointing down, tip at top of marker line)
+    ctx.fillStyle = '#10b981'; // emerald-500
+    ctx.beginPath();
+    ctx.moveTo(startX, padding); // Tip at top of marker line
+    ctx.lineTo(startX - handleSize / 2, handleY); // Left corner of base
+    ctx.lineTo(startX + handleSize / 2, handleY); // Right corner of base
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    
+    // Draw playback position indicator (thin line with triangle) - BEFORE end marker
     if (currentTime > 0 && currentTime <= duration) {
       const playX = padding + (currentTime / duration) * drawWidth;
-      const handleSize = 12;
-      const handleY = padding - handleSize; // Base of triangle above waveform
       
       // Draw playback position line (thin)
       ctx.strokeStyle = '#fbbf24'; // amber-400
@@ -186,30 +209,7 @@ export default function TrimmerContent({ onNextProcess, preloadedFile }: Trimmer
       ctx.stroke();
     }
     
-    // Draw start marker (thin line)
-    const startX = padding + (startTime / duration) * drawWidth;
-    ctx.strokeStyle = '#10b981'; // emerald-500
-    ctx.lineWidth = 1; // Very thin line
-    ctx.beginPath();
-    ctx.moveTo(startX, padding);
-    ctx.lineTo(startX, padding + drawHeight);
-    ctx.stroke();
-    
-    // Draw start handle (triangle pointing down, tip at top of marker line)
-    const handleSize = 12;
-    const handleY = padding - handleSize; // Base of triangle above waveform
-    ctx.fillStyle = '#10b981'; // emerald-500
-    ctx.beginPath();
-    ctx.moveTo(startX, padding); // Tip at top of marker line
-    ctx.lineTo(startX - handleSize / 2, handleY); // Left corner of base
-    ctx.lineTo(startX + handleSize / 2, handleY); // Right corner of base
-    ctx.closePath();
-    ctx.fill();
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
-    
-    // Draw end marker (thin line)
+    // Draw end marker LAST (so it's on top and can be grabbed)
     const endX = padding + (endTime / duration) * drawWidth;
     ctx.strokeStyle = '#ef4444'; // red-500
     ctx.lineWidth = 1; // Very thin line
@@ -218,7 +218,7 @@ export default function TrimmerContent({ onNextProcess, preloadedFile }: Trimmer
     ctx.lineTo(endX, padding + drawHeight);
     ctx.stroke();
     
-    // Draw end handle (triangle pointing down, tip at top of marker line)
+    // Draw end handle (triangle pointing down, tip at top of marker line) - LAST
     ctx.fillStyle = '#ef4444'; // red-500
     ctx.beginPath();
     ctx.moveTo(endX, padding); // Tip at top of marker line
