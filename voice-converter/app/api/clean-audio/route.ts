@@ -58,10 +58,33 @@ export async function POST(request: NextRequest) {
     const buffer = Buffer.from(bytes);
     await writeFile(inputPath, buffer);
 
-    // Verify file was saved correctly
+    // Verify file was saved correctly and wait for file system to sync
     const { stat } = await import('fs/promises');
-    const inputStats = await stat(inputPath);
-    console.log(`✓ File saved to: ${inputPath} (${(inputStats.size / (1024 * 1024)).toFixed(2)} MB)`);
+    
+    // Wait a bit and verify file exists and has correct size (fix timing issues)
+    let retries = 0;
+    const maxRetries = 10;
+    let inputStats;
+    
+    while (retries < maxRetries) {
+      try {
+        inputStats = await stat(inputPath);
+        // Verify file size matches what we wrote
+        if (inputStats.size === buffer.length) {
+          console.log(`✓ File saved to: ${inputPath} (${(inputStats.size / (1024 * 1024)).toFixed(2)} MB)`);
+          break;
+        }
+      } catch (error) {
+        // File doesn't exist yet, wait a bit
+      }
+      
+      if (retries < maxRetries - 1) {
+        await new Promise(resolve => setTimeout(resolve, 100)); // Wait 100ms
+        retries++;
+      } else {
+        throw new Error(`File was not saved correctly after ${maxRetries} retries`);
+      }
+    }
 
     // Run Python fingerprint remover
     const pythonScript = path.join(SCRIPTS_DIR, 'remove_audio_fingerprint.py');
