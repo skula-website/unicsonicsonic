@@ -159,14 +159,30 @@ export default function TrimmerContent({ onNextProcess, preloadedFile }: Trimmer
       }
     }
     
-    // Draw playback position indicator (thin line, so trim markers are visible)
+    // Draw playback position indicator (thin line with triangle)
     if (currentTime > 0 && currentTime <= duration) {
       const playX = padding + (currentTime / duration) * drawWidth;
+      const handleSize = 12;
+      const handleY = padding - handleSize; // Base of triangle above waveform
+      
+      // Draw playback position line (thin)
       ctx.strokeStyle = '#fbbf24'; // amber-400
-      ctx.lineWidth = 2;
+      ctx.lineWidth = 1; // Thin line like trim markers
       ctx.beginPath();
       ctx.moveTo(playX, padding);
       ctx.lineTo(playX, padding + drawHeight);
+      ctx.stroke();
+      
+      // Draw playback position handle (triangle pointing down)
+      ctx.fillStyle = '#fbbf24'; // amber-400
+      ctx.beginPath();
+      ctx.moveTo(playX, padding); // Tip at top of marker line
+      ctx.lineTo(playX - handleSize / 2, handleY); // Left corner of base
+      ctx.lineTo(playX + handleSize / 2, handleY); // Right corner of base
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1.5;
       ctx.stroke();
     }
     
@@ -259,23 +275,33 @@ export default function TrimmerContent({ onNextProcess, preloadedFile }: Trimmer
     const handleSize = 12;
     const handleY = padding - handleSize; // Base of triangle above waveform
     
-    // Larger hit area for easier dragging (include triangle and marker line)
+    // Only allow dragging via triangles (not marker lines)
+    // This prevents conflicts between playback position and trim markers
     const hitAreaWidth = 20; // Wider hit area (10px on each side)
-    const hitAreaHeight = handleSize + 15; // Include triangle and top of marker
     
-    // Check if clicking in triangle area (above waveform) or on marker line
-    // More forgiving hit area for both markers
-    const isInStartHandle = (x >= startX - hitAreaWidth / 2 && x <= startX + hitAreaWidth / 2 && 
-                              y >= handleY - 5 && y <= padding + 15) || 
-                            (Math.abs(x - startX) < 12 && y >= padding && y <= padding + drawHeight);
-    const isInEndHandle = (x >= endX - hitAreaWidth / 2 && x <= endX + hitAreaWidth / 2 && 
-                            y >= handleY - 5 && y <= padding + 15) || 
-                          (Math.abs(x - endX) < 12 && y >= padding && y <= padding + drawHeight);
+    // Check if clicking in triangle area ONLY (above waveform)
+    // Don't check marker lines to avoid conflicts
+    const isInStartHandle = x >= startX - hitAreaWidth / 2 && x <= startX + hitAreaWidth / 2 && 
+                            y >= handleY - 5 && y <= padding + 5;
+    const isInEndHandle = x >= endX - hitAreaWidth / 2 && x <= endX + hitAreaWidth / 2 && 
+                          y >= handleY - 5 && y <= padding + 5;
+    
+    // Check if clicking in playback position triangle
+    const playX = currentTime > 0 ? padding + (currentTime / duration) * drawWidth : -1;
+    const isInPlaybackHandle = playX > 0 && 
+                               x >= playX - hitAreaWidth / 2 && x <= playX + hitAreaWidth / 2 && 
+                               y >= handleY - 5 && y <= padding + 5;
     
     if (isInStartHandle) {
       setIsDragging('start');
     } else if (isInEndHandle) {
       setIsDragging('end');
+    } else if (isInPlaybackHandle) {
+      // Don't allow dragging playback position - it follows audio playback
+      // Just seek to clicked position instead
+      if (audioRef.current) {
+        audioRef.current.currentTime = Math.max(startTime, Math.min(endTime, clickTime));
+      }
     } else {
       // Click in waveform - seek to that position
       if (audioRef.current) {
