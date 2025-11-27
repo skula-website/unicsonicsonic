@@ -14,9 +14,13 @@ RUN apt-get update && apt-get install -y \
 # Set working directory
 WORKDIR /app
 
-# Copy package files from voice-converter FIRST
-COPY voice-converter/package.json ./
-COPY voice-converter/package-lock.json* ./
+# Copy package files from voice-converter
+# Note: voice-converter is in root, so we copy from voice-converter/ subdirectory
+COPY voice-converter/package.json ./package.json
+COPY voice-converter/package-lock.json* ./package-lock.json 2>/dev/null || true
+
+# Verify package.json exists before installing
+RUN test -f package.json && echo "package.json found" || (echo "ERROR: package.json not found" && ls -la && exit 1)
 
 # Install ALL dependencies (including devDependencies for build)
 RUN npm install
