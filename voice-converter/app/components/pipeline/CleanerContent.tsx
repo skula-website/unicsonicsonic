@@ -208,8 +208,18 @@ export default function CleanerContent({ onOpenAnalyzer, onNextProcess, preloade
       const cleanedUrl = window.URL.createObjectURL(blob);
       setCleanedFileUrl(cleanedUrl);
       
-      const cleanedFileName = audioFile.name.replace(/\.(wav|mp3|m4a|flac)$/i, '_cleaned.wav');
-      const file = new File([blob], cleanedFileName, { type: 'audio/wav' });
+      // Get filename from Content-Disposition header (should be normalized with original name)
+      const contentDisposition = response.headers.get('Content-Disposition');
+      let cleanedFileName = audioFile.name.replace(/\.(wav|mp3|m4a|flac)$/i, '_cleaned.wav');
+      if (contentDisposition) {
+        const filenameMatch = contentDisposition.match(/filename="?(.+)"?/);
+        if (filenameMatch) {
+          cleanedFileName = filenameMatch[1];
+        }
+      }
+      
+      // Also save as File for transfer to next process
+      const file = new File([blob], cleanedFileName, { type: blob.type || 'audio/wav' });
       setCleanedFile(file);
 
       setProgress('✅ Cleaning completed!');
