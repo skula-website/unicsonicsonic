@@ -23,7 +23,7 @@ export default function TrimmerContent({ onNextProcess, preloadedFile }: Trimmer
   const [startTime, setStartTime] = useState(0);
   const [endTime, setEndTime] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [isDragging, setIsDragging] = useState<'start' | 'end' | 'playback' | null>(null);
+  const [isDragging, setIsDragging] = useState<'start' | 'end' | null>(null);
   
   // Refs
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -281,44 +281,29 @@ export default function TrimmerContent({ onNextProcess, preloadedFile }: Trimmer
     
     // Check if clicking in triangle area ONLY (above waveform)
     // Don't check marker lines to avoid conflicts
-    const hitAreaYTop = handleY - 5;
-    const hitAreaYBottom = padding + 5;
-    
-    // Calculate hit areas for each marker
-    const startHandleLeft = startX - hitAreaWidth / 2;
-    const startHandleRight = startX + hitAreaWidth / 2;
-    const endHandleLeft = endX - hitAreaWidth / 2;
-    const endHandleRight = endX + hitAreaWidth / 2;
-    
-    const isInStartHandle = x >= startHandleLeft && x <= startHandleRight && 
-                            y >= hitAreaYTop && y <= hitAreaYBottom;
-    const isInEndHandle = x >= endHandleLeft && x <= endHandleRight && 
-                          y >= hitAreaYTop && y <= hitAreaYBottom;
+    const isInStartHandle = x >= startX - hitAreaWidth / 2 && x <= startX + hitAreaWidth / 2 && 
+                            y >= handleY - 5 && y <= padding + 5;
+    const isInEndHandle = x >= endX - hitAreaWidth / 2 && x <= endX + hitAreaWidth / 2 && 
+                          y >= handleY - 5 && y <= padding + 5;
     
     // Check if clicking in playback position triangle
-    const playX = currentTime > 0 && currentTime <= duration ? padding + (currentTime / duration) * drawWidth : -1;
+    const playX = currentTime > 0 ? padding + (currentTime / duration) * drawWidth : -1;
     const isInPlaybackHandle = playX > 0 && 
                                x >= playX - hitAreaWidth / 2 && x <= playX + hitAreaWidth / 2 && 
-                               y >= hitAreaYTop && y <= hitAreaYBottom;
+                               y >= handleY - 5 && y <= padding + 5;
     
-    // Priority: end marker > start marker > playback > waveform click
-    // This ensures end marker can always be grabbed even if overlapping with playback
-    if (isInEndHandle) {
-      setIsDragging('end');
-      e.preventDefault(); // Prevent default to ensure drag works
-    } else if (isInStartHandle) {
+    if (isInStartHandle) {
       setIsDragging('start');
-      e.preventDefault();
+    } else if (isInEndHandle) {
+      setIsDragging('end');
     } else if (isInPlaybackHandle) {
-      // Allow dragging playback position
-      setIsDragging('playback');
-      e.preventDefault();
-      // Also seek immediately when clicking
+      // Don't allow dragging playback position - it follows audio playback
+      // Just seek to clicked position instead
       if (audioRef.current) {
         audioRef.current.currentTime = Math.max(startTime, Math.min(endTime, clickTime));
       }
     } else {
-      // Click in waveform - seek to that position (keep existing functionality)
+      // Click in waveform - seek to that position
       if (audioRef.current) {
         audioRef.current.currentTime = Math.max(startTime, Math.min(endTime, clickTime));
       }
@@ -337,74 +322,15 @@ export default function TrimmerContent({ onNextProcess, preloadedFile }: Trimmer
     const clampedTime = Math.max(0, Math.min(duration, clickTime));
     
     if (isDragging === 'start') {
-      // Start marker: can move left or right, but max is endTime - 0.1
-      const newStartTime = Math.min(clampedTime, endTime - 0.1);
-      setStartTime(newStartTime);
+      setStartTime(Math.min(clampedTime, endTime - 0.1)); // Min 0.1s selection
     } else if (isDragging === 'end') {
-      // End marker: can move left or right, but min is startTime + 0.1
-      // This allows it to move both left (decrease) and right (increase)
-      const newEndTime = Math.max(clampedTime, startTime + 0.1);
-      setEndTime(newEndTime);
-    } else if (isDragging === 'playback') {
-      // Drag playback position - seek to new position
-      const seekTime = Math.max(startTime, Math.min(endTime, clampedTime));
-      if (audioRef.current) {
-        audioRef.current.currentTime = seekTime;
-        setCurrentTime(seekTime);
-      }
+      setEndTime(Math.max(clampedTime, startTime + 0.1)); // Min 0.1s selection
     }
   };
 
   const handleWaveformMouseUp = () => {
     setIsDragging(null);
   };
-
-  // Global mouse events for dragging (works even when mouse leaves canvas)
-  useEffect(() => {
-    if (!isDragging || !waveformCanvasRef.current || !duration) return;
-
-    const handleGlobalMouseMove = (e: MouseEvent) => {
-      if (!waveformCanvasRef.current || !duration) return;
-      
-      const canvas = waveformCanvasRef.current;
-      const rect = canvas.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const padding = 20;
-      const drawWidth = canvas.width - padding * 2;
-      const clickTime = ((x - padding) / drawWidth) * duration;
-      const clampedTime = Math.max(0, Math.min(duration, clickTime));
-      
-      if (isDragging === 'start') {
-        // Start marker: can move left or right, but max is endTime - 0.1
-        const newStartTime = Math.min(clampedTime, endTime - 0.1);
-        setStartTime(newStartTime);
-      } else if (isDragging === 'end') {
-        // End marker: can move left or right, but min is startTime + 0.1
-        // This allows it to move both left (decrease) and right (increase)
-        const newEndTime = Math.max(clampedTime, startTime + 0.1);
-        setEndTime(newEndTime);
-      } else if (isDragging === 'playback') {
-        // Drag playback position - seek to new position
-        const seekTime = Math.max(startTime, Math.min(endTime, clampedTime));
-        if (audioRef.current) {
-          audioRef.current.currentTime = seekTime;
-          setCurrentTime(seekTime);
-        }
-      }
-    };
-
-    const handleGlobalMouseUp = () => {
-      setIsDragging(null);
-    };
-
-    window.addEventListener('mousemove', handleGlobalMouseMove);
-    window.addEventListener('mouseup', handleGlobalMouseUp);
-
-    return () => {
-      window.removeEventListener('mousemove', handleGlobalMouseMove);
-      window.removeEventListener('mouseup', handleGlobalMouseUp);
-    };
-  }, [isDragging, duration, startTime, endTime]);
 
   // Playback controls
   const handlePlay = () => {
