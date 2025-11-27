@@ -497,6 +497,25 @@ export default function TrimmerContent({ onNextProcess, preloadedFile }: Trimmer
                   🔄 Replace Original
                 </button>
               </div>
+              
+              {/* Navigation to next process (step 9) */}
+              {onNextProcess && (
+                <div className="pt-2 border-t border-slate-600">
+                  <p className="text-xs text-gray-400 mb-2">Continue to next process:</p>
+                  <button
+                    onClick={() => onNextProcess(trimmedFile)}
+                    className="w-full px-3 md:px-4 py-1.5 md:py-2 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded text-xs md:text-sm font-medium hover:from-purple-700 hover:to-indigo-700 transition-all"
+                  >
+                    ✓ Continue to Fade In/Out (using trimmed file)
+                  </button>
+                  <button
+                    onClick={() => onNextProcess(audioFile || undefined)}
+                    className="w-full mt-2 px-3 md:px-4 py-1.5 md:py-2 bg-slate-600 hover:bg-slate-500 text-white rounded text-xs md:text-sm font-medium transition-all"
+                  >
+                    Use Original File Instead
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
@@ -511,6 +530,19 @@ export default function TrimmerContent({ onNextProcess, preloadedFile }: Trimmer
           {progress && !isProcessing && (
             <div className="bg-blue-900/50 border border-blue-500 rounded-lg p-3">
               <p className="text-blue-200 text-sm">{progress}</p>
+            </div>
+          )}
+
+          {/* Navigation to next process (if file loaded but not trimmed yet) */}
+          {onNextProcess && audioFile && !trimmedFile && (
+            <div className="bg-slate-700 rounded-lg p-3 border-t border-slate-600 mt-2">
+              <p className="text-xs text-gray-400 mb-2">Continue to next process:</p>
+              <button
+                onClick={() => onNextProcess(audioFile)}
+                className="w-full px-3 md:px-4 py-1.5 md:py-2 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded text-xs md:text-sm font-medium hover:from-purple-700 hover:to-indigo-700 transition-all"
+              >
+                ✓ Continue to Fade In/Out (using current file)
+              </button>
             </div>
           )}
         </>
