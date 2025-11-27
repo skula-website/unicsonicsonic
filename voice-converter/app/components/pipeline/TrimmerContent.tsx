@@ -260,18 +260,17 @@ export default function TrimmerContent({ onNextProcess, preloadedFile }: Trimmer
     const handleY = padding - handleSize; // Base of triangle above waveform
     
     // Larger hit area for easier dragging (include triangle and marker line)
-    const hitAreaWidth = handleSize + 4; // Wider hit area
-    const hitAreaHeight = handleSize + 10; // Include triangle and top of marker
+    const hitAreaWidth = 20; // Wider hit area (10px on each side)
+    const hitAreaHeight = handleSize + 15; // Include triangle and top of marker
     
     // Check if clicking in triangle area (above waveform) or on marker line
+    // More forgiving hit area for both markers
     const isInStartHandle = (x >= startX - hitAreaWidth / 2 && x <= startX + hitAreaWidth / 2 && 
-                              y >= handleY && y <= padding + 10) || 
-                            (Math.abs(x - startX) < 10 && y >= padding && y <= padding + drawHeight);
+                              y >= handleY - 5 && y <= padding + 15) || 
+                            (Math.abs(x - startX) < 12 && y >= padding && y <= padding + drawHeight);
     const isInEndHandle = (x >= endX - hitAreaWidth / 2 && x <= endX + hitAreaWidth / 2 && 
-                            y >= handleY && y <= padding + 10) || 
-                          (Math.abs(x - endX) < 10 && y >= padding && y <= padding + drawHeight);
-    
-    console.log('Click detection:', { x, y, startX, endX, isInStartHandle, isInEndHandle, handleY, padding });
+                            y >= handleY - 5 && y <= padding + 15) || 
+                          (Math.abs(x - endX) < 12 && y >= padding && y <= padding + drawHeight);
     
     if (isInStartHandle) {
       setIsDragging('start');
