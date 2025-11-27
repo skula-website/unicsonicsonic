@@ -172,24 +172,24 @@ export default function PipelinePage() {
     },
     {
       id: 7,
-      title: 'Genre Detector',
-      icon: '🎵',
+      title: 'Audio Trimmer',
+      icon: '✂️',
       status: 'idle' as ProcessStatus,
-      description: 'Coming soon',
+      description: 'Trim audio files',
       onClick: (rect?: DOMRect) => handleProcessClick(7, rect),
     },
     {
       id: 8,
-      title: 'Audio Trimmer',
-      icon: '✂️',
+      title: 'Fade In/Out',
+      icon: '📈',
       status: 'idle' as ProcessStatus,
       description: 'Coming soon',
       onClick: (rect?: DOMRect) => handleProcessClick(8, rect),
     },
     {
       id: 9,
-      title: 'Fade In/Out',
-      icon: '📈',
+      title: 'Genre Detector',
+      icon: '🎵',
       status: 'idle' as ProcessStatus,
       description: 'Coming soon',
       onClick: (rect?: DOMRect) => handleProcessClick(9, rect),
@@ -337,11 +337,11 @@ export default function PipelinePage() {
               }}
               preloadedFile={fileForCleaner || undefined}
             />
-          ) : processDetailInfo.stepNumber === 8 ? (
+          ) : processDetailInfo.stepNumber === 7 ? (
             <TrimmerContent
               onNextProcess={(file) => {
                 setFileForTrimmer(file || null);
-                navigateToNextProcess(8, file);
+                navigateToNextProcess(7, file);
               }}
               preloadedFile={fileForTrimmer || undefined}
             />
