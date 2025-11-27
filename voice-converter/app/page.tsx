@@ -7,6 +7,7 @@ import ProcessDetailModal from './components/pipeline/ProcessDetailModal';
 import AnalyzerContent from './components/pipeline/AnalyzerContent';
 import CleanerContent from './components/pipeline/CleanerContent';
 import ConverterContent from './components/pipeline/ConverterContent';
+import TrimmerContent from './components/pipeline/TrimmerContent';
 import SidebarPanel from './components/pipeline/SidebarPanel';
 import LyricWriterContent from './components/pipeline/LyricWriterContent';
 import { ProcessStatus } from './components/pipeline/ProcessContainer';
@@ -26,6 +27,7 @@ export default function PipelinePage() {
   const [fileForCleaner, setFileForCleaner] = useState<File | null>(null);
   const [fileForAnalyzer, setFileForAnalyzer] = useState<File | null>(null);
   const [fileForConverter, setFileForConverter] = useState<File | null>(null);
+  const [fileForTrimmer, setFileForTrimmer] = useState<File | null>(null);
 
   // Process states
   const [processStates, setProcessStates] = useState<Record<number, ProcessStatus>>({
@@ -334,6 +336,14 @@ export default function PipelinePage() {
                 navigateToNextProcess(3, file);
               }}
               preloadedFile={fileForCleaner || undefined}
+            />
+          ) : processDetailInfo.stepNumber === 8 ? (
+            <TrimmerContent
+              onNextProcess={(file) => {
+                setFileForTrimmer(file || null);
+                navigateToNextProcess(8, file);
+              }}
+              preloadedFile={fileForTrimmer || undefined}
             />
           ) : processDetailInfo.stepNumber === 0 ? (
             // Auxiliary Tools (Lyrics Formatter, etc.)

@@ -100,12 +100,11 @@ git push origin main
 ### Step 4: Verificer Deployment
 
 **Efter deployment, test:**
-1. Åbn Railway dashboard
-2. Find deployment URL (fx `unicsonicsonic-production.up.railway.app`)
-3. Test at appen loader
-4. Test Process 1 (Convert Audio)
-5. Test Process 2 (Analyze Audio)
-6. Test Process 3 (Remove Fingerprint)
+1. **Production URL:** https://unicsonicsonic-production.up.railway.app/
+2. Test at appen loader
+3. Test Process 1 (Convert Audio)
+4. Test Process 2 (Analyze Audio)
+5. Test Process 3 (Remove Fingerprint)
 
 ---
 

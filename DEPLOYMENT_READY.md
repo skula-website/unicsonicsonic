@@ -59,6 +59,7 @@ cd "/Volumes/G2025/asyoulike web/tools"
 - ✅ Projekt: `unicsonicsonic` (gentle-expression)
 - ✅ GitHub integration klar
 - ✅ Dockerfile builder konfigureret
+- ✅ **Production URL:** https://unicsonicsonic-production.up.railway.app/
 
 ---
 
@@ -109,7 +110,7 @@ cd "/Volumes/G2025/asyoulike web/tools"
    - Tjek build logs
 
 3. **Test Appen**
-   - Find Railway URL
+   - **Production URL:** https://unicsonicsonic-production.up.railway.app/
    - Test alle 3 processer
    - Verificer spektrogram visualization
    - Verificer risk categorization

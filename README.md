@@ -134,19 +134,26 @@ Projektet kræver Python backend og kan derfor IKKE hostes på:
 - ❌ Vercel (kun Node.js serverless)
 - ❌ Static hosting (FTP)
 
-✅ **Anbefalet:** Render.com ($7/måned for always-on)
+✅ **Production:** Railway (Hobby Plan)
+- **URL:** https://unicsonicsonic-production.up.railway.app/
+- **Auto-deploy:** Enabled (fra GitHub main branch)
 
 ---
 
 ## 🔧 Deployment
 
-Se `UNICSONIC_KOMPLET_DOKUMENTATION.md` for detaljeret guide til Render.com deployment.
+**Production URL:** https://unicsonicsonic-production.up.railway.app/
+
+**Deployment Platform:** Railway
+- **Projekt:** `gentle-expression` (repository: `unicsonicsonic`)
+- **Build:** Dockerfile-based (Node.js + Python)
+- **Auto-deploy:** Enabled (fra GitHub main branch)
 
 **TL;DR:**
-1. Push til Git repository
-2. Connect til Render.com
-3. Deploy som Web Service med Python + Node.js
-4. Profit 🎉
+1. Push til Git repository (`git push origin main`)
+2. Railway detekterer automatisk push
+3. Railway bygger og deployer automatisk
+4. Appen er live på: https://unicsonicsonic-production.up.railway.app/
 
 ---
 

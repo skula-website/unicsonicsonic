@@ -63,7 +63,7 @@ git push origin main
 ### 4. Test Deployment (Anbefalet)
 
 **Efter deployment, test:**
-1. Find Railway URL (fx `unicsonicsonic-production.up.railway.app`)
+1. **Production URL:** https://unicsonicsonic-production.up.railway.app/
 2. Test at appen loader
 3. Test Process 1 (Convert Audio)
 4. Test Process 2 (Analyze Audio)
