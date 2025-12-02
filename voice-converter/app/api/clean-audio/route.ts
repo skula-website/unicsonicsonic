@@ -30,10 +30,20 @@ export async function POST(request: NextRequest) {
 
     const formData = await request.formData();
     const audioFile = formData.get('audio') as File;
+    const aggressiveness = (formData.get('aggressiveness') as string) || 'medium';
+    const humanization = (formData.get('humanization') as string) || 'false';
 
     if (!audioFile) {
       return NextResponse.json(
         { error: 'No audio file uploaded' },
+        { status: 400 }
+      );
+    }
+
+    // Validate aggressiveness
+    if (!['low', 'medium', 'high'].includes(aggressiveness)) {
+      return NextResponse.json(
+        { error: 'Invalid aggressiveness. Must be: low, medium, or high' },
         { status: 400 }
       );
     }
@@ -116,6 +126,8 @@ export async function POST(request: NextRequest) {
       pythonScript,
       inputPath,
       outputPath,
+      aggressiveness,
+      humanization,
     ], {
       env: {
         ...process.env,
@@ -159,6 +171,18 @@ export async function POST(request: NextRequest) {
       // Include both stdout and stderr in error message for debugging
       const debugInfo = stdout ? `\n\nSTDOUT:\n${stdout}` : '';
       throw new Error(`Python script failed with exit code ${exitCode}${debugInfo}\n\nSTDERR:\n${stderr}`);
+    }
+
+    // Parse pre-analysis metrics from Python output (for caching in frontend)
+    let preAnalysisMetrics = null;
+    const preAnalysisMatch = stdout.match(/__PRE_ANALYSIS_JSON__:(.+)/);
+    if (preAnalysisMatch) {
+      try {
+        preAnalysisMetrics = JSON.parse(preAnalysisMatch[1]);
+        console.log('📊 Pre-analysis metrics captured:', preAnalysisMetrics);
+      } catch (e) {
+        console.warn('⚠️ Failed to parse pre-analysis metrics:', e);
+      }
     }
 
     // Get file stats (stat already imported earlier in function)
@@ -214,17 +238,27 @@ export async function POST(request: NextRequest) {
     const safeDownloadFilename = downloadFilename
       .replace(/[^\x20-\x7E]/g, '_') // Replace non-ASCII with underscore
       .replace(/[^a-zA-Z0-9._-]/g, '_'); // Replace special chars except . _ - with underscore
+
+    // Return streaming response with optional cached metrics
+    const headers: Record<string, string> = {
+      'Content-Type': contentType,
+      'Content-Disposition': `attachment; filename="${safeDownloadFilename}"`,
+      'Content-Length': fileStats.size.toString(),
+      'Cache-Control': 'no-cache',
+      'Transfer-Encoding': 'chunked', // Enable chunked transfer
+    };
     
-    // Return streaming response
+    // Add pre-analysis metrics as header if available (for frontend caching)
+    if (preAnalysisMetrics) {
+      // Encode as base64 to avoid header issues with JSON special chars
+      const metricsBase64 = Buffer.from(JSON.stringify(preAnalysisMetrics)).toString('base64');
+      headers['X-Pre-Analysis-Metrics'] = metricsBase64;
+      console.log('✅ Pre-analysis metrics added to response headers');
+    }
+
     const response = new NextResponse(webStream, {
       status: 200,
-      headers: {
-        'Content-Type': contentType,
-        'Content-Disposition': `attachment; filename="${safeDownloadFilename}"`,
-        'Content-Length': fileStats.size.toString(),
-        'Cache-Control': 'no-cache',
-        'Transfer-Encoding': 'chunked', // Enable chunked transfer
-      },
+      headers,
     });
 
     return response;

@@ -6,11 +6,13 @@ import { getApiPath } from '../lib/api';
 interface WatermarkEnergyComparisonProps {
   originalFile: File | null;
   cleanedFile: File | null;
+  originalAnalysisMetrics?: any; // Optional cached metrics from removal process
 }
 
 export default function WatermarkEnergyComparison({ 
   originalFile, 
-  cleanedFile 
+  cleanedFile,
+  originalAnalysisMetrics
 }: WatermarkEnergyComparisonProps) {
   const [analyzing, setAnalyzing] = useState(true);
   const [originalEnergy, setOriginalEnergy] = useState(0);
@@ -26,7 +28,7 @@ export default function WatermarkEnergyComparison({
     
     console.log('✓ Both files ready, starting analysis');
     analyzeFiles();
-  }, [originalFile, cleanedFile]);
+  }, [originalFile, cleanedFile, originalAnalysisMetrics]);
 
   const analyzeFiles = async () => {
     if (!originalFile || !cleanedFile) {
@@ -39,18 +41,31 @@ export default function WatermarkEnergyComparison({
     setErrorMsg('');
 
     try {
-      // Use SAME API as Analyzer - Python backend with correct STFT
-      console.log('📊 Analyzing original file...');
-      const origAnalysis = await analyzeWithBackend(originalFile);
+      // Check if we have cached pre-analysis metrics (much faster!)
+      let origRatio: number;
       
+      if (originalAnalysisMetrics && originalAnalysisMetrics.current_ratio !== undefined) {
+        // Use cached metrics from removal process
+        origRatio = originalAnalysisMetrics.current_ratio;
+        console.log('✅ Using cached original metrics (skipping re-analysis)');
+        console.log('   Original ratio from cache:', origRatio);
+      } else {
+        // Fallback: analyze original file
+        console.log('📊 Analyzing original file...');
+        const origAnalysis = await analyzeWithBackend(originalFile);
+        origRatio = origAnalysis.watermarkToReferenceRatio || 0;
+      }
+      
+      // Always analyze cleaned file to verify removal
       console.log('📊 Analyzing cleaned file...');
       const cleanAnalysis = await analyzeWithBackend(cleanedFile);
-
-      // Brug watermarkToReferenceRatio fra backend
-      const origRatio = origAnalysis.watermarkToReferenceRatio || 0;
       const cleanRatio = cleanAnalysis.watermarkToReferenceRatio || 0;
 
-      console.log('✓ Original ratio:', origRatio, 'Clean ratio:', cleanRatio);
+      console.log('✓ Comparison:', { 
+        original: origRatio.toFixed(4), 
+        cleaned: cleanRatio.toFixed(4),
+        reduction: origRatio > 0 ? ((origRatio - cleanRatio) / origRatio * 100).toFixed(1) + '%' : 'N/A'
+      });
 
       setOriginalEnergy(origRatio);
       setCleanedEnergy(cleanRatio);
@@ -147,12 +162,22 @@ export default function WatermarkEnergyComparison({
 
   // Slettet - bruger nu backend API i stedet
 
-  // Forenklet visning for brugeren
-  // Skalér så original altid er "100%" (reference point) og clean vises relativt
-  const maxEnergy = Math.max(originalEnergy, cleanedEnergy, 0.01);
+  // Calculate remaining percentage based on original
+  // If original ratio is 0.5 and cleaned is 0.05, that's 10% remaining
   const origPercent = 100; // Original er altid reference (100%)
-  const cleanPercent = Math.round((cleanedEnergy / maxEnergy) * 100);
+  // Calculate what percentage of original energy remains
+  const cleanPercent = originalEnergy > 0 
+    ? Math.round((cleanedEnergy / originalEnergy) * 100)
+    : 0;
   
+  // Debug logging
+  console.log('🔍 Energy Comparison Debug:', {
+    originalEnergy,
+    cleanedEnergy,
+    cleanPercent,
+    reduction: originalEnergy > 0 ? ((originalEnergy - cleanedEnergy) / originalEnergy * 100).toFixed(1) + '%' : 'N/A'
+  });
+
   // Define success categories based on detection risk (not perfection)
   // Focus: Can Spotify/AI detection systems still identify this as watermarked?
   const getResultCategory = (percent: number): { 
@@ -350,8 +375,8 @@ export default function WatermarkEnergyComparison({
                         ? 'bg-gradient-to-r from-yellow-400 to-yellow-500'
                         : 'bg-gradient-to-r from-red-400 to-red-500'
                     }`}
-                    style={{ width: `${Math.max(cleanPercent, 3)}%` }}
-                  >
+                style={{ width: `${Math.max(cleanPercent, 3)}%` }}
+              >
                     <span className={`font-bold text-lg ${
                       cleanPercent <= 10 || cleanPercent <= 20
                         ? 'text-white'

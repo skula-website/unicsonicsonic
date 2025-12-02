@@ -30,6 +30,9 @@ export default function CleanerContent({ onOpenAnalyzer, onNextProcess, preloade
   const [originalFileUrl, setOriginalFileUrl] = useState<string | null>(null);
   const [cleanedFileUrl, setCleanedFileUrl] = useState<string | null>(null);
   const [cleanedFile, setCleanedFile] = useState<File | null>(null);
+  const [aggressiveness, setAggressiveness] = useState<'low' | 'medium' | 'high'>('medium');
+  const [enableHumanization, setEnableHumanization] = useState(false); // AI Humanization toggle
+  const [cachedPreAnalysis, setCachedPreAnalysis] = useState<any>(null); // Cached pre-analysis metrics
   
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [estimatedSeconds, setEstimatedSeconds] = useState<number | null>(null);
@@ -117,6 +120,8 @@ export default function CleanerContent({ onOpenAnalyzer, onNextProcess, preloade
     try {
       const formData = new FormData();
       formData.append('audio', audioFile);
+      formData.append('aggressiveness', aggressiveness);
+      formData.append('humanization', enableHumanization ? 'true' : 'false');
 
       const response = await fetch(getApiPath('/api/clean-audio'), {
         method: 'POST',
@@ -149,6 +154,20 @@ export default function CleanerContent({ onOpenAnalyzer, onNextProcess, preloade
           errorMsg = errorText || errorMsg;
         }
         throw new Error(errorMsg);
+      }
+      
+      // Check for cached pre-analysis metrics in response headers (for faster comparison)
+      const preAnalysisHeader = response.headers.get('X-Pre-Analysis-Metrics');
+      if (preAnalysisHeader) {
+        try {
+          // Decode base64 and parse JSON
+          const metricsJson = atob(preAnalysisHeader);
+          const metrics = JSON.parse(metricsJson);
+          setCachedPreAnalysis(metrics);
+          console.log('✅ Pre-analysis metrics cached for comparison:', metrics);
+        } catch (e) {
+          console.warn('⚠️ Failed to parse pre-analysis metrics from header:', e);
+        }
       }
       
       // Get content length for progress tracking
@@ -294,13 +313,91 @@ export default function CleanerContent({ onOpenAnalyzer, onNextProcess, preloade
           currentFile={audioFile}
         />
 
+      {/* Aggressiveness Setting */}
+      {audioFile && !isProcessing && (
+        <div className="space-y-1.5 md:space-y-2 bg-slate-50 dark:bg-slate-800/50 rounded-lg p-3 md:p-3">
+          <label className="block text-xs md:text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+            Removal Intensity
+          </label>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setAggressiveness('low')}
+              className={`flex-1 px-3 py-2 rounded-lg text-xs md:text-sm font-medium transition-colors ${
+                aggressiveness === 'low'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-600'
+              }`}
+            >
+              Low
+            </button>
+            <button
+              onClick={() => setAggressiveness('medium')}
+              className={`flex-1 px-3 py-2 rounded-lg text-xs md:text-sm font-medium transition-colors ${
+                aggressiveness === 'medium'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-600'
+              }`}
+            >
+              Medium
+            </button>
+            <button
+              onClick={() => setAggressiveness('high')}
+              className={`flex-1 px-3 py-2 rounded-lg text-xs md:text-sm font-medium transition-colors ${
+                aggressiveness === 'high'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-600'
+              }`}
+            >
+              High
+            </button>
+          </div>
+          <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
+            {aggressiveness === 'low' && 'Basic filtering. Fastest processing.'}
+            {aggressiveness === 'medium' && 'Recommended. Phase randomization + spectral normalization.'}
+            {aggressiveness === 'high' && 'Maximum removal. Includes dithering and time stretching.'}
+          </p>
+        </div>
+      )}
+
+      {/* AI Humanization Toggle */}
+      {audioFile && !isProcessing && (
+        <div className="bg-purple-50 dark:bg-purple-900/20 rounded-lg p-3 border-2 border-purple-200 dark:border-purple-800">
+          <label className="flex items-center gap-3 cursor-pointer">
+            <input 
+              type="checkbox"
+              checked={enableHumanization}
+              onChange={(e) => setEnableHumanization(e.target.checked)}
+              className="w-4 h-4 text-purple-600 rounded focus:ring-2 focus:ring-purple-500"
+            />
+            <div className="flex-1">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-semibold text-purple-900 dark:text-purple-100">
+                  🧪 AI Humanization
+                </span>
+                <span className="text-xs px-2 py-0.5 bg-purple-200 dark:bg-purple-800 text-purple-800 dark:text-purple-200 rounded-full font-medium">
+                  BETA
+                </span>
+              </div>
+              <p className="text-xs text-purple-700 dark:text-purple-300 mt-1 leading-relaxed">
+                Tilføjer analog warmth, room tone, og naturlige imperfections for at mindske AI detection.
+                Bedst til AI-genereret vocals/instrumenter.
+              </p>
+              <p className="text-xs text-purple-600 dark:text-purple-400 mt-1 italic">
+                ⚡ +30-45s processing tid
+              </p>
+            </div>
+          </label>
+        </div>
+      )}
+
       {/* Compact Info Box - Responsive padding */}
       <div className="bg-orange-500/20 border border-orange-500/50 rounded-lg p-1.5 md:p-2">
-        <p className="text-xs text-orange-200 font-medium mb-0.5 md:mb-1">🔍 Removes:</p>
+        <p className="text-xs text-orange-200 font-medium mb-0.5 md:mb-1">🔍 Enhanced Removal:</p>
         <ul className="text-xs text-orange-100 space-y-0.5 ml-3 list-disc">
-          <li>Spectral watermarks (18-22 kHz)</li>
-          <li>Statistical fingerprints</li>
-          <li>DC offset & metadata</li>
+          <li>Multi-stage filtering (17kHz → 15.5kHz)</li>
+          <li>Phase randomization (disrupts patterns)</li>
+          <li>Spectral normalization (target ratio ~0.15)</li>
+          <li>High-frequency dithering (high mode)</li>
         </ul>
       </div>
 
@@ -358,6 +455,7 @@ export default function CleanerContent({ onOpenAnalyzer, onNextProcess, preloade
             <WatermarkEnergyComparison 
               originalFile={audioFile}
               cleanedFile={cleanedFile}
+              originalAnalysisMetrics={cachedPreAnalysis}
             />
           )}
 
