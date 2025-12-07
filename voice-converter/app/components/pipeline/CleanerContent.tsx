@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import AudioSpectrum from '../AudioSpectrum';
 import WatermarkEnergyComparison from '../WatermarkEnergyComparison';
 import { getApiPath } from '../../lib/api';
@@ -30,9 +30,31 @@ export default function CleanerContent({ onOpenAnalyzer, onNextProcess, preloade
   const [originalFileUrl, setOriginalFileUrl] = useState<string | null>(null);
   const [cleanedFileUrl, setCleanedFileUrl] = useState<string | null>(null);
   const [cleanedFile, setCleanedFile] = useState<File | null>(null);
-  const [aggressiveness, setAggressiveness] = useState<'low' | 'medium' | 'high'>('medium');
-  const [enableHumanization, setEnableHumanization] = useState(false); // AI Humanization toggle
+  // NEW: Two sliders instead of low/medium/high
+  // Defaults baseret på testresultater: 30% fingerprint + 15% humanizing = mest konsistente "Human made" resultat
+  const [fingerprintIntensity, setFingerprintIntensity] = useState(30); // 20-60% (default 30% = optimal)
+  const [humanizingIntensity, setHumanizingIntensity] = useState(15); // 5-20% (default 15% = optimal)
   const [cachedPreAnalysis, setCachedPreAnalysis] = useState<any>(null); // Cached pre-analysis metrics
+  
+  // Audio playback state (like NoiseRemoverContent)
+  const [activePlayer, setActivePlayer] = useState<'original' | 'cleaned'>('original');
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [isDraggingPlayback, setIsDraggingPlayback] = useState(false);
+  const isDraggingPlaybackRef = useRef(false);
+  const [isHoveringPlaybackHandle, setIsHoveringPlaybackHandle] = useState(false);
+  
+  // Waveform state
+  const [originalWaveform, setOriginalWaveform] = useState<number[]>([]);
+  const [cleanedWaveform, setCleanedWaveform] = useState<number[]>([]);
+  
+  // Refs
+  const originalAudioRef = useRef<HTMLAudioElement | null>(null);
+  const cleanedAudioRef = useRef<HTMLAudioElement | null>(null);
+  const originalCanvasRef = useRef<HTMLCanvasElement>(null);
+  const cleanedCanvasRef = useRef<HTMLCanvasElement>(null);
+  const animationFrameRef = useRef<number | null>(null);
   
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [estimatedSeconds, setEstimatedSeconds] = useState<number | null>(null);
@@ -120,8 +142,8 @@ export default function CleanerContent({ onOpenAnalyzer, onNextProcess, preloade
     try {
       const formData = new FormData();
       formData.append('audio', audioFile);
-      formData.append('aggressiveness', aggressiveness);
-      formData.append('humanization', enableHumanization ? 'true' : 'false');
+      formData.append('fingerprintIntensity', fingerprintIntensity.toString());
+      formData.append('humanizingIntensity', humanizingIntensity.toString());
 
       const response = await fetch(getApiPath('/api/clean-audio'), {
         method: 'POST',
@@ -292,6 +314,489 @@ export default function CleanerContent({ onOpenAnalyzer, onNextProcess, preloade
     setCleanedFileUrl(null);
     setCleanedFile(null);
     setProgress('');
+    setCurrentTime(0);
+    setIsPlaying(false);
+    setActivePlayer('original');
+    setOriginalWaveform([]);
+    setCleanedWaveform([]);
+  };
+
+  // Generate waveform data from audio file (from NoiseRemoverContent)
+  const generateWaveform = useCallback(async (file: File): Promise<number[]> => {
+    try {
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const arrayBuffer = await file.arrayBuffer();
+      const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+      
+      const data = audioBuffer.getChannelData(0);
+      const samples = 1000; // Downsample for visualization
+      const blockSize = Math.floor(data.length / samples);
+      const waveform: number[] = [];
+      
+      for (let i = 0; i < samples; i++) {
+        let sum = 0;
+        for (let j = 0; j < blockSize; j++) {
+          const index = i * blockSize + j;
+          if (index < data.length) {
+            sum += Math.abs(data[index]);
+          }
+        }
+        waveform.push(sum / blockSize);
+      }
+      
+      return waveform;
+    } catch (err) {
+      console.error('Error generating waveform:', err);
+      return [];
+    }
+  }, []);
+
+  // Load waveform when original file changes
+  useEffect(() => {
+    if (audioFile && !originalWaveform.length) {
+      generateWaveform(audioFile).then(setOriginalWaveform);
+    }
+  }, [audioFile, originalWaveform.length, generateWaveform]);
+
+  // Load waveform when cleaned file changes
+  useEffect(() => {
+    if (cleanedFile && !cleanedWaveform.length) {
+      generateWaveform(cleanedFile).then(setCleanedWaveform);
+    }
+  }, [cleanedFile, cleanedWaveform.length, generateWaveform]);
+
+  // Keep ref in sync with state
+  useEffect(() => {
+    isDraggingPlaybackRef.current = isDraggingPlayback;
+  }, [isDraggingPlayback]);
+
+  // Stop all audio when modal closes/opens (listen to custom event)
+  useEffect(() => {
+    const handleStopAllAudio = () => {
+      if (originalAudioRef.current) {
+        originalAudioRef.current.pause();
+        originalAudioRef.current.currentTime = 0;
+      }
+      if (cleanedAudioRef.current) {
+        cleanedAudioRef.current.pause();
+        cleanedAudioRef.current.currentTime = 0;
+      }
+      setIsPlaying(false);
+    };
+    
+    window.addEventListener('stop-all-audio', handleStopAllAudio);
+    return () => {
+      window.removeEventListener('stop-all-audio', handleStopAllAudio);
+    };
+  }, []);
+
+  // Setup audio elements (from NoiseRemoverContent)
+  useEffect(() => {
+    if (originalFileUrl) {
+      // Cleanup previous audio
+      if (originalAudioRef.current) {
+        originalAudioRef.current.pause();
+        originalAudioRef.current = null;
+      }
+      
+      const audio = new Audio(originalFileUrl);
+      originalAudioRef.current = audio;
+      
+      audio.addEventListener('loadedmetadata', () => {
+        setDuration(audio.duration);
+      });
+      
+      audio.addEventListener('timeupdate', () => {
+        // Don't update time during drag (prevents conflicts)
+        if (isDraggingPlaybackRef.current) return;
+        
+        if (activePlayer === 'original' || !cleanedFile) {
+          setCurrentTime(audio.currentTime);
+        }
+      });
+      
+      audio.addEventListener('ended', () => {
+        if (activePlayer === 'original' || !cleanedFile) {
+          setIsPlaying(false);
+        }
+      });
+      
+      return () => {
+        audio.pause();
+        audio.removeEventListener('loadedmetadata', () => {});
+        audio.removeEventListener('timeupdate', () => {});
+        audio.removeEventListener('ended', () => {});
+      };
+    }
+  }, [originalFileUrl, activePlayer, cleanedFile]);
+
+  useEffect(() => {
+    if (cleanedFileUrl) {
+      // Cleanup previous audio
+      if (cleanedAudioRef.current) {
+        cleanedAudioRef.current.pause();
+        cleanedAudioRef.current = null;
+      }
+      
+      const audio = new Audio(cleanedFileUrl);
+      cleanedAudioRef.current = audio;
+      
+      audio.addEventListener('loadedmetadata', () => {
+        if (!duration) setDuration(audio.duration);
+      });
+      
+      audio.addEventListener('timeupdate', () => {
+        // Don't update time during drag (prevents conflicts)
+        if (isDraggingPlaybackRef.current) return;
+        
+        if (activePlayer === 'cleaned') {
+          setCurrentTime(audio.currentTime);
+        }
+      });
+      
+      audio.addEventListener('ended', () => {
+        if (activePlayer === 'cleaned') {
+          setIsPlaying(false);
+        }
+      });
+      
+      return () => {
+        audio.pause();
+        audio.removeEventListener('loadedmetadata', () => {});
+        audio.removeEventListener('timeupdate', () => {});
+        audio.removeEventListener('ended', () => {});
+      };
+    }
+  }, [cleanedFileUrl, duration, activePlayer]);
+
+  // Global mouse events for stable dragging (from NoiseRemoverContent)
+  useEffect(() => {
+    if (!isDraggingPlayback) {
+      return;
+    }
+    
+    const currentActivePlayer = activePlayer;
+    const currentDuration = duration;
+    
+    const handleGlobalMouseMove = (e: MouseEvent) => {
+      const activeCanvas = currentActivePlayer === 'original' ? originalCanvasRef.current : cleanedCanvasRef.current;
+      
+      if (!activeCanvas || !currentDuration || currentDuration <= 0) {
+        return;
+      }
+      
+      const rect = activeCanvas.getBoundingClientRect();
+      const scaleX = activeCanvas.width / rect.width;
+      const x = (e.clientX - rect.left) * scaleX;
+      
+      const padding = 20;
+      const drawWidth = activeCanvas.width - padding * 2;
+      const clickTime = ((x - padding) / drawWidth) * currentDuration;
+      const clampedTime = Math.max(0, Math.min(currentDuration, clickTime));
+      
+      const masterAudio = currentActivePlayer === 'original' ? originalAudioRef.current : cleanedAudioRef.current;
+      const slaveAudio = currentActivePlayer === 'original' ? cleanedAudioRef.current : originalAudioRef.current;
+      
+      if (masterAudio) {
+        masterAudio.currentTime = clampedTime;
+      }
+      if (slaveAudio) {
+        slaveAudio.currentTime = clampedTime;
+      }
+      setCurrentTime(clampedTime);
+    };
+    
+    const handleGlobalMouseUp = () => {
+      setIsDraggingPlayback(false);
+    };
+    
+    window.addEventListener('mousemove', handleGlobalMouseMove, { capture: true, passive: false });
+    window.addEventListener('mouseup', handleGlobalMouseUp, { capture: true });
+    
+    return () => {
+      window.removeEventListener('mousemove', handleGlobalMouseMove, { capture: true });
+      window.removeEventListener('mouseup', handleGlobalMouseUp, { capture: true });
+    };
+  }, [isDraggingPlayback, activePlayer, duration]);
+
+  // Synchronize playback between players (from NoiseRemoverContent)
+  useEffect(() => {
+    if (!isPlaying || isDraggingPlayback) return;
+    
+    const masterAudio = activePlayer === 'original' ? originalAudioRef.current : cleanedAudioRef.current;
+    const slaveAudio = activePlayer === 'original' ? cleanedAudioRef.current : originalAudioRef.current;
+    
+    if (masterAudio && slaveAudio) {
+      slaveAudio.currentTime = masterAudio.currentTime;
+      
+      const updateSlave = () => {
+        if (masterAudio && slaveAudio && !masterAudio.paused && !isDraggingPlaybackRef.current) {
+          const masterTime = masterAudio.currentTime;
+          const slaveTime = slaveAudio.currentTime;
+          if (Math.abs(masterTime - slaveTime) > 0.05) {
+            slaveAudio.currentTime = masterTime;
+          }
+        }
+        if (isPlaying && !isDraggingPlaybackRef.current) {
+          animationFrameRef.current = requestAnimationFrame(updateSlave);
+        }
+      };
+      animationFrameRef.current = requestAnimationFrame(updateSlave);
+    }
+    
+    return () => {
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+    };
+  }, [isPlaying, activePlayer, isDraggingPlayback]);
+
+  // Draw waveforms (from NoiseRemoverContent)
+  useEffect(() => {
+    if (!originalCanvasRef.current || !originalWaveform.length || !duration) return;
+    
+    const canvas = originalCanvasRef.current;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    
+    const width = canvas.width;
+    const height = canvas.height;
+    const padding = 20;
+    const drawWidth = width - padding * 2;
+    const drawHeight = height - padding * 2;
+    
+    ctx.fillStyle = '#1e293b';
+    ctx.fillRect(0, 0, width, height);
+    
+    const barWidth = drawWidth / originalWaveform.length;
+    const maxAmplitude = Math.max(...originalWaveform);
+    
+    ctx.fillStyle = activePlayer === 'original' ? '#3b82f6' : '#475569';
+    for (let i = 0; i < originalWaveform.length; i++) {
+      const x = padding + i * barWidth;
+      const amplitude = (originalWaveform[i] / maxAmplitude) * drawHeight;
+      ctx.fillRect(x, padding + drawHeight / 2 - amplitude / 2, barWidth - 1, amplitude);
+    }
+    
+    // Draw playback position with drag handle
+    if (currentTime > 0 && currentTime <= duration) {
+      const playX = padding + (currentTime / duration) * drawWidth;
+      const handleSize = 12;
+      const handleY = padding - handleSize;
+      
+      ctx.strokeStyle = '#fbbf24';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(playX, padding);
+      ctx.lineTo(playX, padding + drawHeight);
+      ctx.stroke();
+      
+      ctx.fillStyle = '#fbbf24';
+      ctx.beginPath();
+      ctx.moveTo(playX, padding);
+      ctx.lineTo(playX - handleSize / 2, handleY);
+      ctx.lineTo(playX + handleSize / 2, handleY);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+  }, [originalWaveform, duration, currentTime, activePlayer]);
+
+  useEffect(() => {
+    if (!cleanedCanvasRef.current || !cleanedWaveform.length || !duration) return;
+    
+    const canvas = cleanedCanvasRef.current;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    
+    const width = canvas.width;
+    const height = canvas.height;
+    const padding = 20;
+    const drawWidth = width - padding * 2;
+    const drawHeight = height - padding * 2;
+    
+    ctx.fillStyle = '#1e293b';
+    ctx.fillRect(0, 0, width, height);
+    
+    const barWidth = drawWidth / cleanedWaveform.length;
+    const maxAmplitude = Math.max(...cleanedWaveform);
+    
+    ctx.fillStyle = activePlayer === 'cleaned' ? '#10b981' : '#475569';
+    for (let i = 0; i < cleanedWaveform.length; i++) {
+      const x = padding + i * barWidth;
+      const amplitude = (cleanedWaveform[i] / maxAmplitude) * drawHeight;
+      ctx.fillRect(x, padding + drawHeight / 2 - amplitude / 2, barWidth - 1, amplitude);
+    }
+    
+    // Draw playback position with drag handle
+    if (currentTime > 0 && currentTime <= duration) {
+      const playX = padding + (currentTime / duration) * drawWidth;
+      const handleSize = 12;
+      const handleY = padding - handleSize;
+      
+      ctx.strokeStyle = '#fbbf24';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(playX, padding);
+      ctx.lineTo(playX, padding + drawHeight);
+      ctx.stroke();
+      
+      ctx.fillStyle = '#fbbf24';
+      ctx.beginPath();
+      ctx.moveTo(playX, padding);
+      ctx.lineTo(playX - handleSize / 2, handleY);
+      ctx.lineTo(playX + handleSize / 2, handleY);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+  }, [cleanedWaveform, duration, currentTime, activePlayer]);
+
+  // Playback handlers (from NoiseRemoverContent)
+  const handlePlayPause = () => {
+    if (isDraggingPlayback) return;
+    
+    if (audioFile && !cleanedFile) {
+      const audio = originalAudioRef.current;
+      if (audio) {
+        if (audio.paused) {
+          audio.play().catch(console.error);
+          setIsPlaying(true);
+          setActivePlayer('original');
+        } else {
+          audio.pause();
+          setIsPlaying(false);
+        }
+      }
+      return;
+    }
+    
+    const masterAudio = activePlayer === 'original' ? originalAudioRef.current : cleanedAudioRef.current;
+    const slaveAudio = activePlayer === 'original' ? cleanedAudioRef.current : originalAudioRef.current;
+    
+    if (masterAudio && slaveAudio) {
+      if (masterAudio.paused) {
+        const syncTime = masterAudio.currentTime;
+        slaveAudio.currentTime = syncTime;
+        masterAudio.play().catch(console.error);
+        setIsPlaying(true);
+      } else {
+        masterAudio.pause();
+        slaveAudio.pause();
+        setIsPlaying(false);
+      }
+    }
+  };
+
+  const handleTogglePlayer = () => {
+    const currentMaster = activePlayer === 'original' ? originalAudioRef.current : cleanedAudioRef.current;
+    const currentSlave = activePlayer === 'original' ? cleanedAudioRef.current : originalAudioRef.current;
+    
+    if (currentMaster && currentSlave) {
+      const wasPlaying = !currentMaster.paused;
+      const currentTime = currentMaster.currentTime;
+      
+      if (wasPlaying) {
+        currentMaster.pause();
+        currentSlave.pause();
+      }
+      
+      const newActivePlayer = activePlayer === 'original' ? 'cleaned' : 'original';
+      setActivePlayer(newActivePlayer);
+      
+      if (wasPlaying) {
+        setTimeout(() => {
+          const newMaster = newActivePlayer === 'original' ? originalAudioRef.current : cleanedAudioRef.current;
+          const newSlave = newActivePlayer === 'original' ? cleanedAudioRef.current : originalAudioRef.current;
+          if (newMaster && newSlave) {
+            newMaster.currentTime = currentTime;
+            newSlave.currentTime = currentTime;
+            newMaster.play();
+            setIsPlaying(true);
+          }
+        }, 50);
+      }
+    } else {
+      setActivePlayer(activePlayer === 'original' ? 'cleaned' : 'original');
+    }
+  };
+
+  const handleWaveformMouseDown = (e: React.MouseEvent<HTMLCanvasElement>, canvasRef: React.RefObject<HTMLCanvasElement>) => {
+    if (!canvasRef.current || !duration) return;
+    
+    const canvas = canvasRef.current;
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const x = (e.clientX - rect.left) * scaleX;
+    const y = (e.clientY - rect.top) * scaleY;
+    
+    const padding = 20;
+    const drawWidth = canvas.width - padding * 2;
+    const handleSize = 12;
+    const handleY = padding - handleSize;
+    
+    const playX = (currentTime >= 0 && duration > 0) ? padding + (currentTime / duration) * drawWidth : -1;
+    const hitAreaWidth = 30;
+    const hitAreaHeight = 20;
+    
+    const isInPlaybackHandle = playX >= 0 && 
+                               x >= playX - hitAreaWidth / 2 && x <= playX + hitAreaWidth / 2 && 
+                               y >= handleY - 10 && y <= padding + hitAreaHeight;
+    
+    if (isInPlaybackHandle) {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsDraggingPlayback(true);
+    }
+  };
+
+  const handleWaveformMouseMove = (e: React.MouseEvent<HTMLCanvasElement>, canvasRef: React.RefObject<HTMLCanvasElement>) => {
+    if (isDraggingPlayback) return;
+    
+    if (!canvasRef.current || !duration) return;
+    
+    const canvas = canvasRef.current;
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const x = (e.clientX - rect.left) * scaleX;
+    const y = (e.clientY - rect.top) * scaleY;
+    
+    const padding = 20;
+    const drawWidth = canvas.width - padding * 2;
+    const handleSize = 12;
+    const handleY = padding - handleSize;
+    
+    const playX = currentTime >= 0 ? padding + (currentTime / duration) * drawWidth : -1;
+    const hitAreaWidth = 30;
+    
+    const isOverHandle = playX >= 0 && 
+                         x >= playX - hitAreaWidth / 2 && x <= playX + hitAreaWidth / 2 && 
+                         y >= handleY - 10 && y <= padding + 20;
+    
+    setIsHoveringPlaybackHandle(isOverHandle);
+  };
+
+  const handleWaveformMouseUp = () => {
+    if (isDraggingPlayback) {
+      setIsDraggingPlayback(false);
+    }
+  };
+
+  const handleWaveformMouseLeave = () => {
+    setIsHoveringPlaybackHandle(false);
+    handleWaveformMouseUp();
+  };
+
+  const formatTime = (seconds: number) => {
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = Math.floor(seconds % 60);
+    return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
   };
 
   return (
@@ -313,80 +818,62 @@ export default function CleanerContent({ onOpenAnalyzer, onNextProcess, preloade
           currentFile={audioFile}
         />
 
-      {/* Aggressiveness Setting */}
+      {/* Two Sliders for Fingerprint Removal and Humanization */}
       {audioFile && !isProcessing && (
-        <div className="space-y-1.5 md:space-y-2 bg-slate-50 dark:bg-slate-800/50 rounded-lg p-3 md:p-3">
-          <label className="block text-xs md:text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
-            Removal Intensity
-          </label>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setAggressiveness('low')}
-              className={`flex-1 px-3 py-2 rounded-lg text-xs md:text-sm font-medium transition-colors ${
-                aggressiveness === 'low'
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-600'
-              }`}
-            >
-              Low
-            </button>
-            <button
-              onClick={() => setAggressiveness('medium')}
-              className={`flex-1 px-3 py-2 rounded-lg text-xs md:text-sm font-medium transition-colors ${
-                aggressiveness === 'medium'
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-600'
-              }`}
-            >
-              Medium
-            </button>
-            <button
-              onClick={() => setAggressiveness('high')}
-              className={`flex-1 px-3 py-2 rounded-lg text-xs md:text-sm font-medium transition-colors ${
-                aggressiveness === 'high'
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-600'
-              }`}
-            >
-              High
-            </button>
-          </div>
-          <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
-            {aggressiveness === 'low' && 'Basic filtering. Fastest processing.'}
-            {aggressiveness === 'medium' && 'Recommended. Phase randomization + spectral normalization.'}
-            {aggressiveness === 'high' && 'Maximum removal. Includes dithering and time stretching.'}
-          </p>
-        </div>
-      )}
-
-      {/* AI Humanization Toggle */}
-      {audioFile && !isProcessing && (
-        <div className="bg-purple-50 dark:bg-purple-900/20 rounded-lg p-3 border-2 border-purple-200 dark:border-purple-800">
-          <label className="flex items-center gap-3 cursor-pointer">
-            <input 
-              type="checkbox"
-              checked={enableHumanization}
-              onChange={(e) => setEnableHumanization(e.target.checked)}
-              className="w-4 h-4 text-purple-600 rounded focus:ring-2 focus:ring-purple-500"
+        <div className="space-y-3">
+          {/* Fingerprint Removal Slider */}
+          <div className="bg-slate-800 rounded-lg p-3">
+            <label className="block text-sm font-medium text-white mb-1.5">
+              Fingerprint Removal: {fingerprintIntensity}%
+            </label>
+            <input
+              type="range"
+              min="20"
+              max="60"
+              value={fingerprintIntensity}
+              onChange={(e) => setFingerprintIntensity(parseInt(e.target.value))}
+              className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
+              disabled={isProcessing}
             />
-            <div className="flex-1">
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-semibold text-purple-900 dark:text-purple-100">
-                  🧪 AI Humanization
-                </span>
-                <span className="text-xs px-2 py-0.5 bg-purple-200 dark:bg-purple-800 text-purple-800 dark:text-purple-200 rounded-full font-medium">
-                  BETA
-                </span>
-              </div>
-              <p className="text-xs text-purple-700 dark:text-purple-300 mt-1 leading-relaxed">
-                Tilføjer analog warmth, room tone, og naturlige imperfections for at mindske AI detection.
-                Bedst til AI-genereret vocals/instrumenter.
-              </p>
-              <p className="text-xs text-purple-600 dark:text-purple-400 mt-1 italic">
-                ⚡ +30-45s processing tid
-              </p>
+            <div className="flex justify-between text-xs text-gray-400 mt-1">
+              <span className="text-red-400">Min (20%)</span>
+              <span className="text-green-400 font-semibold">Optimal (30%)</span>
+              <span className="text-yellow-400">Max (60%)</span>
             </div>
-          </label>
+            <p className="text-xs text-gray-400 mt-2">
+              Kontrollerer matematisk Hz-behandling: ratio target, outlier removal, spectral normalization
+            </p>
+            <p className="text-xs text-orange-300 mt-1.5 font-medium">
+              ⚠️ Under 20% = AI Generated | Over 60% = Risiko for over-processing
+            </p>
+          </div>
+
+          {/* Humanizing Slider */}
+          <div className="bg-slate-800 rounded-lg p-3">
+            <label className="block text-sm font-medium text-white mb-1.5">
+              Musical Humanization: {humanizingIntensity}%
+            </label>
+            <input
+              type="range"
+              min="5"
+              max="20"
+              value={humanizingIntensity}
+              onChange={(e) => setHumanizingIntensity(parseInt(e.target.value))}
+              className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-purple-500"
+              disabled={isProcessing}
+            />
+            <div className="flex justify-between text-xs text-gray-400 mt-1">
+              <span className="text-red-400">Min (5%)</span>
+              <span className="text-green-400 font-semibold">Optimal (15%)</span>
+              <span className="text-yellow-400">Max (20%)</span>
+            </div>
+            <p className="text-xs text-gray-400 mt-2">
+              Kontrollerer musikalsk humanization: tempo variation, pitch variation, timing variation, chroma variation
+            </p>
+            <p className="text-xs text-orange-300 mt-1.5 font-medium">
+              ⚠️ Under 5% = Inconclusive | Over 20% = Risiko for over-humanization
+            </p>
+          </div>
         </div>
       )}
 
@@ -431,24 +918,120 @@ export default function CleanerContent({ onOpenAnalyzer, onNextProcess, preloade
         </div>
       )}
 
-      {/* Compact Before/After Comparison */}
-      {cleanedFileUrl && originalFileUrl && (
-        <div className="space-y-2">
-          <h3 className="text-sm font-bold text-white">📊 Before/After</h3>
-          <div className="grid grid-cols-2 gap-2">
-            <div className="bg-red-500/20 border-2 border-red-500/50 rounded p-2">
-              <span className="font-bold text-red-300 text-xs">⚠️ Original</span>
-              <audio controls className="w-full mt-1" style={{ height: '32px' }}>
-                <source src={originalFileUrl} />
-              </audio>
+      {/* Side-by-side Players (like NoiseRemoverContent) */}
+      {audioFile && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Original Player */}
+            <div className={`bg-slate-800 rounded-lg p-4 border-2 ${activePlayer === 'original' ? 'border-blue-500' : 'border-slate-700'}`}>
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-sm font-medium text-white">Original</h3>
+                {activePlayer === 'original' && isPlaying && (
+                  <span className="text-xs bg-blue-500 text-white px-2 py-1 rounded">Playing</span>
+                )}
+              </div>
+              {originalWaveform.length > 0 ? (
+                <canvas
+                  ref={originalCanvasRef}
+                  width={600}
+                  height={150}
+                  className="w-full h-auto rounded-md mb-2"
+                  style={{ cursor: isDraggingPlayback ? 'grabbing' : (isHoveringPlaybackHandle ? 'grab' : 'default') }}
+                  onMouseDown={(e) => handleWaveformMouseDown(e, originalCanvasRef)}
+                  onMouseMove={(e) => handleWaveformMouseMove(e, originalCanvasRef)}
+                  onMouseUp={handleWaveformMouseUp}
+                  onMouseLeave={handleWaveformMouseLeave}
+                />
+              ) : (
+                <div className="h-[150px] bg-slate-900 rounded-md flex items-center justify-center mb-2">
+                  <p className="text-gray-500 text-sm">Loading waveform...</p>
+                </div>
+              )}
+              <div className="text-xs text-gray-400 text-center">
+                {formatTime(currentTime)} / {formatTime(duration)}
+              </div>
             </div>
-            <div className="bg-green-500/20 border-2 border-green-500/50 rounded p-2">
-              <span className="font-bold text-green-300 text-xs">✓ Cleaned</span>
-              <audio controls className="w-full mt-1" style={{ height: '32px' }}>
-                <source src={cleanedFileUrl} />
-              </audio>
+
+            {/* Cleaned Player */}
+            <div className={`bg-slate-800 rounded-lg p-4 border-2 ${activePlayer === 'cleaned' ? 'border-green-500' : 'border-slate-700'}`}>
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-sm font-medium text-white">Cleaned</h3>
+                {activePlayer === 'cleaned' && isPlaying && (
+                  <span className="text-xs bg-green-500 text-white px-2 py-1 rounded">Playing</span>
+                )}
+              </div>
+              {cleanedFile ? (
+                cleanedWaveform.length > 0 ? (
+                  <canvas
+                    ref={cleanedCanvasRef}
+                    width={600}
+                    height={150}
+                    className="w-full h-auto rounded-md mb-2"
+                    style={{ cursor: isDraggingPlayback ? 'grabbing' : (isHoveringPlaybackHandle ? 'grab' : 'default') }}
+                    onMouseDown={(e) => handleWaveformMouseDown(e, cleanedCanvasRef)}
+                    onMouseMove={(e) => handleWaveformMouseMove(e, cleanedCanvasRef)}
+                    onMouseUp={handleWaveformMouseUp}
+                    onMouseLeave={handleWaveformMouseLeave}
+                  />
+                ) : (
+                  <div className="h-[150px] bg-slate-900 rounded-md flex items-center justify-center mb-2">
+                    <p className="text-gray-500 text-sm">Loading waveform...</p>
+                  </div>
+                )
+              ) : (
+                <div className="h-[150px] bg-slate-900 rounded-md flex items-center justify-center mb-2">
+                  <p className="text-gray-500 text-sm">No cleaned file yet</p>
+                </div>
+              )}
+              <div className="text-xs text-gray-400 text-center">
+                {formatTime(currentTime)} / {formatTime(duration)}
+              </div>
             </div>
           </div>
+
+          {/* Playback Controls */}
+          {cleanedFile && (
+            <div className="flex items-center justify-center space-x-4 bg-slate-800 p-4 rounded-lg">
+              <button
+                onClick={handlePlayPause}
+                className="p-3 rounded-full bg-purple-600 text-white hover:bg-purple-700 transition-colors"
+                title={isPlaying ? 'Pause' : 'Play'}
+              >
+                {isPlaying ? (
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                ) : (
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                )}
+              </button>
+              
+              <button
+                onClick={handleTogglePlayer}
+                className="px-4 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition-colors text-sm font-medium"
+                title="Switch between Original and Cleaned"
+              >
+                ⇄ Switch
+              </button>
+            </div>
+          )}
+
+          {/* Hidden audio elements */}
+          {originalFileUrl && (
+            <audio ref={originalAudioRef} src={originalFileUrl} />
+          )}
+          {cleanedFileUrl && (
+            <audio ref={cleanedAudioRef} src={cleanedFileUrl} />
+          )}
+        </div>
+      )}
+
+      {/* Before/After Comparison (Energy and Spectrum) */}
+      {cleanedFileUrl && originalFileUrl && (
+        <div className="space-y-2">
 
           {/* Energy Comparison - will show error if it fails */}
           {cleanedFile && (

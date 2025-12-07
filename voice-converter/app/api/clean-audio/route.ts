@@ -30,8 +30,8 @@ export async function POST(request: NextRequest) {
 
     const formData = await request.formData();
     const audioFile = formData.get('audio') as File;
-    const aggressiveness = (formData.get('aggressiveness') as string) || 'medium';
-    const humanization = (formData.get('humanization') as string) || 'false';
+    const fingerprintIntensity = parseInt((formData.get('fingerprintIntensity') as string) || '30');
+    const humanizingIntensity = parseInt((formData.get('humanizingIntensity') as string) || '10');
 
     if (!audioFile) {
       return NextResponse.json(
@@ -40,10 +40,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validate aggressiveness
-    if (!['low', 'medium', 'high'].includes(aggressiveness)) {
+    // Validate intensities (0-100)
+    if (fingerprintIntensity < 0 || fingerprintIntensity > 100 || isNaN(fingerprintIntensity)) {
       return NextResponse.json(
-        { error: 'Invalid aggressiveness. Must be: low, medium, or high' },
+        { error: 'Invalid fingerprintIntensity. Must be between 0 and 100' },
+        { status: 400 }
+      );
+    }
+    if (humanizingIntensity < 0 || humanizingIntensity > 100 || isNaN(humanizingIntensity)) {
+      return NextResponse.json(
+        { error: 'Invalid humanizingIntensity. Must be between 0 and 100' },
         { status: 400 }
       );
     }
@@ -126,8 +132,8 @@ export async function POST(request: NextRequest) {
       pythonScript,
       inputPath,
       outputPath,
-      aggressiveness,
-      humanization,
+      fingerprintIntensity.toString(),
+      humanizingIntensity.toString(),
     ], {
       env: {
         ...process.env,
